@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-2: #f1f0ee;
+  --border: #e4e2df;
+  --text: #1c1917;
+  --text-2: #78716c;
+  --accent: #0f766e;
+  --accent-text: #ffffff;
+  --danger: #b91c1c;
+  --ok: #15803d;
+  --warn: #b45309;
+}
+
+.dark {
+  --bg: #1c1917;
+  --surface: #292524;
+  --surface-2: #33302d;
+  --border: #44403c;
+  --text: #fafaf9;
+  --text-2: #a8a29e;
+  --accent: #2dd4bf;
+  --accent-text: #134e4a;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  position: relative; /* Base UI: iOS 26+ backdrop fix */
+  background: var(--bg);
+  color: var(--text);
+}
+
+.root {
+  isolation: isolate; /* Base UI: keep portaled popups above app content */
+}

@@ -119,6 +119,20 @@ fn note_write(dir: String, path: String, content: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+fn note_list(dir: String) -> Result<Vec<String>, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let mut notes: Vec<String> = vault
+        .fs_files()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|(rel, _)| rel)
+        .filter(|rel| rel.ends_with(".md"))
+        .collect();
+    notes.sort();
+    Ok(notes)
+}
+
+#[tauri::command]
 fn note_read(dir: String, path: String) -> Result<String, String> {
     let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
     std::fs::read_to_string(vault.root.join(&path)).map_err(|e| e.to_string())
@@ -159,6 +173,7 @@ pub fn run() {
             vault_init,
             vault_status,
             vault_sync,
+            note_list,
             note_read,
             note_write,
             note_delete
