@@ -9,7 +9,6 @@ use gix::refs::Target;
 use gix::remote::Direction;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
 
 pub struct GixBackend {
     repo: gix::Repository,
@@ -187,18 +186,31 @@ impl GitBackend for GixBackend {
             .workdir()
             .ok_or_else(|| anyhow!("push requires a worktree repository"))?
             .to_path_buf();
-        let out = Command::new("git")
-            .args(["push", "origin", "refs/heads/main:refs/heads/main"])
-            .current_dir(&workdir)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-            .context("spawn git push")?;
-        if !out.status.success() {
-            return Err(anyhow!(
-                "git push failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            ));
+        let repo = git2::Repository::open(&workdir)?;
+        let mut remote = repo.find_remote("origin")?;
+        let mut cbs = git2::RemoteCallbacks::new();
+        let rejected = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let rejected_c = rejected.clone();
+        cbs.push_update_reference(move |refname, status| {
+            if let Some(msg) = status {
+                rejected_c
+                    .borrow_mut()
+                    .push(format!("{refname}: {msg}"));
+            }
+            Ok(())
+        });
+        let mut opts = git2::PushOptions::new();
+        opts.remote_callbacks(cbs);
+        remote
+            .push(&["refs/heads/main:refs/heads/main"], Some(&mut opts))
+            .context("libgit2 push")?;
+        let rejected = rejected.borrow();
+        if !rejected.is_empty() {
+            return Err(anyhow!("push rejected: {}", rejected.join("; ")));
         }
+        remote.disconnect()?;
+        drop(remote);
+        drop(repo);
         let actual = self.fetch()?;
         if actual.as_deref() != Some(expected_local.as_str()) {
             return Err(anyhow!(

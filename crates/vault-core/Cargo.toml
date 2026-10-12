@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 gix = { workspace = true }
+git2 = { workspace = true }
 imara-diff = { workspace = true }
 rusqlite = { workspace = true }
 anyhow = { workspace = true }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/vault-core", "crates/vault-spike-cli"]
+members = ["crates/vault-core", "crates/vault-spike-cli", "md-app/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +15,14 @@ gix = { version = "0.89", features = [
     "blocking-network-client",
 ] }
 imara-diff = "0.2"
+git2 = "0.21"
 rusqlite = { version = "0.40", features = ["bundled"] }
 tempfile = "3"
 anyhow = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
