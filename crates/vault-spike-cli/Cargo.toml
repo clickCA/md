@@ -1,0 +1,12 @@
+[package]
+name = "vault-spike-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vault-core = { path = "../vault-core" }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

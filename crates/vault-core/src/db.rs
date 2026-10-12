@@ -1,0 +1,130 @@
+use anyhow::Result;
+use rusqlite::Connection;
+use std::path::Path;
+
+pub struct Db {
+    conn: Connection,
+}
+
+#[derive(Debug)]
+pub struct ConflictRow {
+    pub path: String,
+    pub conflict_copy: String,
+    pub winner: String,
+    pub at: String,
+}
+
+#[derive(Debug)]
+pub struct RunRow {
+    pub id: i64,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub outcome: Option<String>,
+}
+
+impl Db {
+    pub fn open(root: &Path) -> Result<Self> {
+        let conn = Connection::open(root.join("index.db"))?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sync_journal (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                outcome TEXT,
+                detail TEXT
+            );
+            CREATE TABLE IF NOT EXISTS journal_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                at TEXT NOT NULL,
+                state TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS conflicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                at TEXT NOT NULL,
+                path TEXT NOT NULL,
+                conflict_copy TEXT NOT NULL,
+                winner TEXT NOT NULL,
+                resolution TEXT
+            );",
+        )?;
+        Ok(Self { conn })
+    }
+
+    fn now() -> String {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default()
+    }
+
+    pub fn begin_run(&self) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO sync_journal (started_at) VALUES (?1)",
+            [Self::now()],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn event(&self, run: i64, state: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO journal_events (run_id, at, state) VALUES (?1, ?2, ?3)",
+            rusqlite::params![run, Self::now(), state],
+        )?;
+        Ok(())
+    }
+
+    pub fn finish_run(&self, run: i64, outcome: &str, detail: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sync_journal SET finished_at = ?1, outcome = ?2, detail = ?3 WHERE id = ?4",
+            rusqlite::params![Self::now(), outcome, detail, run],
+        )?;
+        Ok(())
+    }
+
+    pub fn record_conflict(&self, path: &str, copy: &str, winner: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO conflicts (at, path, conflict_copy, winner) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![Self::now(), path, copy, winner],
+        )?;
+        Ok(())
+    }
+
+    pub fn conflicts(&self) -> Result<Vec<ConflictRow>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT at, path, conflict_copy, winner FROM conflicts ORDER BY id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ConflictRow {
+                at: r.get(0)?,
+                path: r.get(1)?,
+                conflict_copy: r.get(2)?,
+                winner: r.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    pub fn last_run(&self) -> Result<Option<RunRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, started_at, finished_at, outcome FROM sync_journal ORDER BY id DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map([], |r| {
+            Ok(RunRow {
+                id: r.get(0)?,
+                started_at: r.get(1)?,
+                finished_at: r.get(2)?,
+                outcome: r.get(3)?,
+            })
+        })?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn events_of(&self, run: i64) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT at, state FROM journal_events WHERE run_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([run], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+}
