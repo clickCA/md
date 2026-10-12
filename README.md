@@ -42,7 +42,7 @@ Files + SQLite index per vault · standard Git remote · single main branch
 | Editor UX, search index, background scheduling | ⬜ backlog |
 
 Full design + gitoxide evaluation log:
-[docs/design/sync-spike.md](docs/design/sync-spike.md)
+[docs/adr/2026-10-12-git.md](docs/adr/2026-10-12-git.md)
 
 ## Test suite
 
