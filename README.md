@@ -1,51 +1,68 @@
 # md
 
-Personal Markdown vault with a Git-backed sync engine. Spike for the cross-platform
-app (macOS / Linux / iOS / iPadOS / Android): Tauri 2 + React UI on a shared Rust core.
+Personal Markdown vault with a Git-backed sync engine. Target: one portable vault on
+macOS, Linux, iOS/iPadOS, and Android — Tauri 2 + React UI on a shared Rust core.
 
-## Status: sync spike (complete)
-
-The vertical slice — vault → edit note → commit → sync → resolve conflict → crash
-recovery — is implemented and tested:
-
-- `crates/vault-core` — vault, Git backend (`GitBackend` trait), sync state machine,
-  three-way line merge (imara-diff), LWW conflict copies, SQLite journal
-- `crates/vault-spike-cli` — test harness (`init-remote`, `init`, `edit`, `rm`,
-  `sync`, `status`)
-- Merge policy: non-overlapping edits auto-merge; overlapping edits resolve
-  last-writer-wins with the loser preserved as `note.conflict-<ts>.md`;
-  edit beats delete (deleted version preserved as a conflict copy)
-- All sync operations idempotent; re-running after a kill at any state converges
-
-Run the suite:
+## Architecture
 
 ```
-cargo test
+┌──────────────────────────────────────────────┐
+│  md-app/  Tauri 2 + React + TypeScript UI    │
+├──────────────────────────────────────────────┤
+│  crates/vault-core  (shared Rust engine)     │
+│    vault      notes CRUD, FS scan            │
+│    git        GitBackend trait               │
+│               ├ gix: objects/fetch/merge     │
+│               └ git2 (libgit2): push         │
+│    merge      diff3 line merge (imara-diff)  │
+│    sync       state machine + recovery       │
+│    db         SQLite journal + conflicts     │
+├──────────────────────────────────────────────┤
+│  crates/vault-spike-cli  test harness        │
+└──────────────────────────────────────────────┘
+Files + SQLite index per vault · standard Git remote · single main branch
 ```
 
-Design and the gitoxide evaluation (go/no-go: hybrid — libgit2 for push):
+- **Merge policy**: non-overlapping edits auto-merge (line-level three-way);
+  overlapping edits resolve last-writer-wins, loser preserved as
+  `note.conflict-<ts>.md` and synced; edit beats delete (deleted version preserved)
+- **Recovery**: every sync is journaled and idempotent — re-running after a kill
+  at any state transition converges, and the remote ref only moves forward
+- **Sync promise**: immediate sync when the app is active; opportunistic on
+  mobile background windows (never guaranteed by the OS)
+
+## Status
+
+| Milestone | State |
+| --------- | ----- |
+| Sync spike: engine + merge + crash recovery, desktop test suite | ✅ done (9/9 tests) |
+| Transport decision: hybrid gix + libgit2 push | ✅ done |
+| Tauri 2 desktop app (macOS/Linux) wired to the core | ✅ done |
+| Mobile validation: same suite on Android + iOS device | ⬜ next |
+| Editor UX, search index, background scheduling | ⬜ backlog |
+
+Full design + gitoxide evaluation log:
 [docs/design/sync-spike.md](docs/design/sync-spike.md)
 
-## Tauri app (desktop)
-
-`md-app/` — Tauri 2 + React + TypeScript shell wired to the same `vault-core`
-(sync, notes, status, conflict report). Package manager: **pnpm 12**.
+## Test suite
 
 ```
-# dev (vite + tauri, hot reload)
-cd md-app && pnpm install && pnpm tauri dev
-
-# self-contained release binary (no dev server needed)
-cargo build --release -p md-app   # → target/release/md-app
+cargo test          # 9 tests: happy path, concurrent edits, delete-vs-edit,
+                    # offline-then-online, nested dirs, line-merge units,
+                    # SIGKILL convergence at every sync state
 ```
 
-Note: a debug build without the dev server shows "could not connect to
-localhost:1420" — the debug build loads `devUrl`. Use `pnpm tauri dev` or
-the release binary.
+## Running the desktop app
 
-Commands exposed to the UI: `vault_open`, `vault_init`, `vault_status`,
-`vault_sync`, `note_read`, `note_write`, `note_delete`.
+See [md-app/README.md](md-app/README.md). Quick start:
+
+```
+cd md-app && pnpm install && pnpm tauri dev    # dev, hot reload
+cargo build --release -p md-app                # self-contained binary
+```
 
 ## Toolchain
 
-Rust 1.94 (pinned in `rust-toolchain.toml`). pnpm 12 for the frontend.
+- Rust 1.94 (pinned in `rust-toolchain.toml`)
+- pnpm 12 (frontend), Node ≥ 20
+- Linux build deps: webkit2gtk-4.1, libgit2 ≥ 1.9 (mobile builds vendor libgit2 via cmake)
