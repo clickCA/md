@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Dialog } from "@base-ui/react/dialog";
 import { CloudUpload, FilePlus2, Moon, Sun, Trash2 } from "lucide-react";
+import MarkdownEditor from "./components/MarkdownEditor";
+import ConflictCard from "./components/ConflictCard";
 
 interface Conflict {
   path: string;
@@ -88,7 +90,16 @@ export default function App() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [newNoteOpen, setNewNoteOpen] = useState(false);
   const [newNoteName, setNewNoteName] = useState("");
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelAutosave = () => {
+    if (autosaveTimer.current) {
+      clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+  };
+
+  useEffect(() => cancelAutosave, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -102,25 +113,37 @@ export default function App() {
       await refresh();
     });
 
+  const reloadOpenNote = useCallback(
+    async (path: string) => {
+      const content = await invoke<string>("note_read", { dir, path });
+      setBody(content);
+      setDirty(false);
+    },
+    [dir],
+  );
+
   const doSync = () =>
     run("sync", async () => {
+      cancelAutosave();
       const r = await invoke<SyncResult>("vault_sync", { dir });
       setSyncResult(r);
       await refresh();
+      if (notePath) await reloadOpenNote(notePath);
     });
 
   const loadNote = (path: string) =>
     run("read", async () => {
+      cancelAutosave();
       const content = await invoke<string>("note_read", { dir, path });
       setNotePath(path);
       setBody(content);
       setDirty(false);
-      editorRef.current?.focus();
     });
 
   const saveNote = useCallback(
     async (content: string) => {
       if (!notePath) return;
+      cancelAutosave();
       await run("write", async () => {
         await invoke("note_write", { dir, path: notePath, content });
         await refresh();
@@ -130,12 +153,24 @@ export default function App() {
     [dir, notePath, run, refresh],
   );
 
+  const onEditorChange = useCallback(
+    (value: string) => {
+      setBody(value);
+      setDirty(true);
+      cancelAutosave();
+      autosaveTimer.current = setTimeout(() => void saveNote(value), 800);
+    },
+    [saveNote],
+  );
+
   const deleteNote = (path: string) =>
     run("delete", async () => {
+      cancelAutosave();
       await invoke("note_delete", { dir, path });
       if (notePath === path) {
         setNotePath(null);
         setBody("");
+        setDirty(false);
       }
       await refresh();
     });
@@ -152,13 +187,6 @@ export default function App() {
       await loadNote(path);
     });
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-      e.preventDefault();
-      void saveNote(body);
-    }
-  };
-
   const syncState = !status
     ? "idle"
     : status.conflicts.length > 0
@@ -170,7 +198,7 @@ export default function App() {
           : "local";
 
   return (
-    <div className="flex h-full flex-col" onKeyDown={onKeyDown}>
+    <div className="flex h-full flex-col">
       {/* header */}
       <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
         <span className="text-sm font-semibold tracking-wide">md</span>
@@ -312,11 +340,16 @@ export default function App() {
             >
               {syncResult.action} → {short(syncResult.head)}
               {syncResult.conflicts.length > 0 &&
-                ` · ${syncResult.conflicts.length} conflicts: ` +
-                  syncResult.conflicts
-                    .map((c) => `${c.path} → ${c.conflictCopy}`)
-                    .join(", ")}
+                ` · ${syncResult.conflicts.length} conflicts`}
             </div>
+          )}
+          {status && status.conflicts.length > 0 && (
+            <ConflictCard
+              dir={dir}
+              conflicts={status.conflicts}
+              busy={busy}
+              onResolved={doSync}
+            />
           )}
           {notePath ? (
             <>
@@ -332,15 +365,12 @@ export default function App() {
                   Save ⌘S
                 </button>
               </div>
-              <textarea
-                ref={editorRef}
-                value={body}
-                onChange={(e) => {
-                  setBody(e.target.value);
-                  setDirty(true);
-                }}
-                spellCheck={false}
-                className="min-h-0 flex-1 resize-none bg-bg px-6 py-4 font-mono text-[15px] leading-relaxed outline-none"
+              <MarkdownEditor
+                path={notePath}
+                initialBody={body}
+                dark={dark}
+                onChange={onEditorChange}
+                onSave={() => void saveNote(body)}
               />
             </>
           ) : (
