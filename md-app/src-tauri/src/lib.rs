@@ -147,12 +147,6 @@ fn vault_make(dir: String, remote_url: Option<String>) -> Result<StatusDto, Stri
 }
 
 #[tauri::command]
-fn vault_open(dir: String) -> Result<StatusDto, String> {
-    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
-    status(&vault)
-}
-
-#[tauri::command]
 fn vault_status(dir: String) -> Result<StatusDto, String> {
     let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
     status(&vault)

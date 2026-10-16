@@ -195,7 +195,6 @@ export default function App() {
     if (probe.isVault) {
       setDir(picked);
       await run("open", async () => {
-        await invoke<Status>("vault_open", { dir: picked });
         await refresh(picked);
       });
     } else {
