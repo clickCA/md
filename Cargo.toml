@@ -13,9 +13,10 @@ gix = { version = "0.89", features = [
     "worktree-mutation",
     "extras",
     "blocking-network-client",
+    "blocking-http-transport-curl",
 ] }
 imara-diff = "0.2"
-git2 = "0.21"
+git2 = { version = "0.21", features = ["cred"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 tempfile = "3"
 anyhow = "1"

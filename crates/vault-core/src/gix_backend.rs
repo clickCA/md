@@ -169,10 +169,18 @@ impl GitBackend for GixBackend {
     }
 
     fn remote_main_oid(&self) -> Result<Option<Oid>> {
-        Ok(self
-            .repo
-            .try_find_reference(ORIGIN_MAIN)?
-            .and_then(|r| ref_target_oid(&r).map(to_hex)))
+        for name in [
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+            "refs/remotes/origin/master",
+        ] {
+            if let Some(mut r) = self.repo.try_find_reference(name)? {
+                if let Ok(id) = r.follow_to_object() {
+                    return Ok(Some(to_hex(id.detach())));
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn fetch(&self) -> Result<Option<Oid>> {
@@ -205,6 +213,12 @@ impl GitBackend for GixBackend {
                     .push(format!("{refname}: {msg}"));
             }
             Ok(())
+        });
+        let workdir_c = workdir.clone();
+        cbs.credentials(move |url, username, _tries| {
+            let repo = git2::Repository::open(&workdir_c)?;
+            let cfg = repo.config()?;
+            git2::Cred::credential_helper(&cfg, url, username)
         });
         let mut opts = git2::PushOptions::new();
         opts.remote_callbacks(cbs);
