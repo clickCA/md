@@ -33,8 +33,12 @@ fn winner_key(time: i64, oid: &str) -> (i64, String) {
 }
 
 pub fn sync(vault: &Vault) -> Result<SyncOutcome> {
+    sync_with(vault, None)
+}
+
+pub fn sync_with(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<SyncOutcome> {
     let run = vault.db.begin_run()?;
-    let result = sync_inner(vault, run);
+    let result = sync_inner(vault, run, creds);
     match &result {
         Ok(outcome) => {
             let o = if outcome.conflicts.is_empty() { "ok" } else { "conflicts" };
@@ -47,7 +51,7 @@ pub fn sync(vault: &Vault) -> Result<SyncOutcome> {
     result
 }
 
-fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
+fn sync_inner(vault: &Vault, run: i64, creds: Option<&crate::git_backend::Credentials>) -> Result<SyncOutcome> {
     vault.commit_pending("auto: pending changes")?;
     let local = vault.git.head_oid()?;
 
@@ -61,7 +65,7 @@ fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
     }
 
     vault.db.event(run, "fetching")?;
-    let remote = vault.git.fetch()?;
+    let remote = vault.git.fetch(creds)?;
     abort_point("fetching");
 
     let (local, remote) = match (local, remote) {
@@ -76,7 +80,7 @@ fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
             });
         }
         (Some(l), None) => {
-            push(vault, run, &l)?;
+            push(vault, run, &l, creds)?;
             return Ok(SyncOutcome {
                 action: "push (initial)".into(),
                 head: Some(l.clone()),
@@ -103,7 +107,7 @@ fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
         .ok_or_else(|| anyhow!("histories are unrelated; refusing to merge"))?;
 
     if mb == remote {
-        push(vault, run, &local)?;
+        push(vault, run, &local, creds)?;
         return Ok(SyncOutcome {
             action: "push".into(),
             head: Some(local.clone()),
@@ -158,7 +162,7 @@ fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
     vault.git.update_main(&commit)?;
     abort_point("committing");
 
-    push(vault, run, &commit)?;
+    push(vault, run, &commit, creds)?;
     Ok(SyncOutcome {
         action: "merge".into(),
         head: Some(commit.clone()),
@@ -167,9 +171,9 @@ fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
     })
 }
 
-fn push(vault: &Vault, run: i64, oid: &str) -> Result<()> {
+fn push(vault: &Vault, run: i64, oid: &str, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
     vault.db.event(run, "pushing")?;
-    vault.git.push_main(&oid.to_string())?;
+    vault.git.push_main(&oid.to_string(), creds)?;
     abort_point("pushing");
     Ok(())
 }
@@ -273,4 +277,35 @@ fn conflict_copy_name(path: &str) -> String {
         Some(stem) => format!("{stem}.conflict-{ts}.md"),
         None => format!("{path}.conflict-{ts}.md"),
     }
+}
+
+
+/// Commit pending changes and push (fails if the remote has moved).
+pub fn push_now(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+    vault.commit_pending("auto: pending changes")?;
+    let local = vault
+        .git
+        .head_oid()?
+        .ok_or_else(|| anyhow!("no local history to push"))?;
+    vault.git.push_main(&local, creds)
+}
+
+/// Take the remote state verbatim: fetch, materialize, move main.
+/// Local-only commits are abandoned (recoverable via reflog).
+pub fn take_remote(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+    let remote = vault
+        .git
+        .fetch(creds)?
+        .ok_or_else(|| anyhow!("no remote history to take"))?;
+    fast_forward(vault, &remote)
+}
+
+/// Commit pending changes and force-push local state to the remote.
+pub fn force_publish(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+    vault.commit_pending("auto: pending changes")?;
+    let local = vault
+        .git
+        .head_oid()?
+        .ok_or_else(|| anyhow!("no local history to publish"))?;
+    vault.git.force_push_main(&local, creds)
 }

@@ -18,7 +18,8 @@ macOS, Linux, iOS/iPadOS, and Android — Tauri 2 + React UI on a shared Rust co
 │    sync       state machine + recovery       │
 │    db         SQLite journal + conflicts     │
 ├──────────────────────────────────────────────┤
-│  crates/vault-spike-cli  test harness        │
+│  crates/vault-core  bin: vault-cli           │
+│    (test harness + crash-injection tests)    │
 └──────────────────────────────────────────────┘
 Files + SQLite index per vault · standard Git remote · single main branch
 ```

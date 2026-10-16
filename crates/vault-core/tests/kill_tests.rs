@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_vault-spike-cli");
+const BIN: &str = env!("CARGO_BIN_EXE_vault-cli");
 
 fn run(args: &[&str]) -> String {
     let out = Command::new(BIN).args(args).output().expect("spawn cli");

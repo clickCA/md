@@ -7,7 +7,7 @@ use vault_core::vault::Vault;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: vault-spike <command> [args]
+        "usage: vault-cli <command> [args]
 commands:
   init-remote <bare-dir>
   init <vault-dir> <remote-url>

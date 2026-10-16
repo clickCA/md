@@ -17,7 +17,7 @@ import LiveMarkdownEditor from "./components/LiveMarkdownEditor";
 import ConflictCard from "./components/ConflictCard";
 import FileTree from "./components/FileTree";
 import SearchResults, { type SearchHit } from "./components/SearchResults";
-import { Search } from "lucide-react";
+import { Search, GitBranch, KeyRound } from "lucide-react";
 
 interface Conflict {
   path: string;
@@ -48,6 +48,18 @@ interface SyncResult {
   head: string | null;
   remote: string | null;
   conflicts: Conflict[];
+}
+
+interface Creds {
+  username: string;
+  password: string;
+}
+
+interface GitState {
+  remoteUrl: string | null;
+  head: string | null;
+  remote: string | null;
+  relation: string;
 }
 
 interface Probe {
@@ -143,6 +155,13 @@ export default function App() {
   const [setupRemote, setSetupRemote] = useState("");
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
+  const [creds, setCreds] = useState<Creds | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authUser, setAuthUser] = useState("");
+  const [authPass, setAuthPass] = useState("");
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [gitState, setGitState] = useState<GitState | null>(null);
+  const [confirmForce, setConfirmForce] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("md.sidebarOpen") !== "0",
   );
@@ -220,6 +239,32 @@ export default function App() {
     }
   };
 
+  const refreshGit = () =>
+    invoke<GitState>("git_state_cmd", { dir })
+      .then(setGitState)
+      .catch(() => setGitState(null));
+
+  const openGitPanel = () => {
+    setGitPanelOpen(true);
+    setConfirmForce(false);
+    void refreshGit();
+  };
+
+  const gitAction = (action: string) =>
+    run(action, async () => {
+      await invoke<GitState>("git_action", { dir, action, credentials: creds }).catch(
+        (e) => {
+          if (String(e).includes("authentication required")) {
+            setAuthOpen(true);
+            throw new Error("authentication required");
+          }
+          throw e;
+        },
+      );
+      await Promise.all([refresh(), refreshGit()]);
+      if (notePath) await reloadOpenNote(notePath);
+    });
+
   const connectVault = (d: string, remote: string | null) =>
     run("connect", async () => {
       await invoke<Status>("vault_make", { dir: d, remoteUrl: remote });
@@ -236,11 +281,22 @@ export default function App() {
     [dir],
   );
 
-  const doSync = () =>
+  const doSync = (c?: Creds | null) =>
     run("sync", async () => {
       cancelAutosave();
-      const r = await invoke<SyncResult>("vault_sync", { dir });
-      setSyncResult(r);
+      try {
+        const r = await invoke<SyncResult>("vault_sync", {
+          dir,
+          credentials: c ?? creds,
+        });
+        setSyncResult(r);
+      } catch (e) {
+        if (String(e).includes("authentication required")) {
+          setAuthOpen(true);
+          return;
+        }
+        throw e;
+      }
       await refresh();
       if (notePath) await reloadOpenNote(notePath);
     });
@@ -432,12 +488,20 @@ export default function App() {
         </span>
 
         <button
-          onClick={doSync}
+          onClick={() => doSync()}
           disabled={busy || !status}
           className="flex items-center gap-1.5 rounded bg-accent px-2 py-1 text-xs text-accent-text hover:opacity-90 disabled:opacity-40 md:px-2.5"
         >
           <CloudUpload size={14} />
           <span className="hidden sm:inline">Sync</span>
+        </button>
+        <button
+          onClick={openGitPanel}
+          disabled={!status}
+          className="rounded p-1.5 text-text-2 hover:bg-surface-2 disabled:opacity-40"
+          title="git tools"
+        >
+          <GitBranch size={15} />
         </button>
         <button
           onClick={() => setDark((d) => !d)}
@@ -714,6 +778,135 @@ export default function App() {
                 Create vault
               </button>
             </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+      {/* credentials dialog */}
+      <Dialog.Root open={authOpen} onOpenChange={setAuthOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 bg-black/30" />
+          <Dialog.Popup className="fixed left-1/2 top-1/4 w-96 max-w-[92vw] -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
+            <Dialog.Title className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+              <KeyRound size={14} /> Sign in to sync
+            </Dialog.Title>
+            <p className="mb-3 text-xs text-text-2">
+              The remote needs credentials. For GitHub, use your username and a
+              fine-grained personal access token with repository read/write access.
+            </p>
+            <label className="mb-1 block text-xs text-text-2">username</label>
+            <input
+              autoFocus
+              value={authUser}
+              onChange={(e) => setAuthUser(e.target.value)}
+              className="mb-3 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <label className="mb-1 block text-xs text-text-2">password / token</label>
+            <input
+              type="password"
+              value={authPass}
+              onChange={(e) => setAuthPass(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && authUser && authPass) {
+                  const c = { username: authUser, password: authPass };
+                  setCreds(c);
+                  setAuthOpen(false);
+                  void doSync(c);
+                }
+              }}
+              className="mb-4 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <div className="flex justify-end gap-2">
+              <Dialog.Close className="rounded px-2.5 py-1 text-xs hover:bg-surface-2">
+                Cancel
+              </Dialog.Close>
+              <button
+                onClick={() => {
+                  if (!authUser || !authPass) return;
+                  const c = { username: authUser, password: authPass };
+                  setCreds(c);
+                  setAuthOpen(false);
+                  void doSync(c);
+                }}
+                disabled={!authUser || !authPass}
+                className="rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90 disabled:opacity-40"
+              >
+                Sign in &amp; sync
+              </button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* git tools panel */}
+      <Dialog.Root open={gitPanelOpen} onOpenChange={setGitPanelOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 bg-black/30" />
+          <Dialog.Popup className="fixed left-1/2 top-[12%] w-[26rem] max-w-[92vw] -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
+            <Dialog.Title className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
+              <GitBranch size={14} /> git
+            </Dialog.Title>
+            {gitState ? (
+              <>
+                <div className="mb-3 space-y-1 rounded border border-border bg-surface-2 p-2 font-mono text-xs text-text-2">
+                  <div className="truncate" title={gitState.remoteUrl ?? ""}>
+                    remote: {gitState.remoteUrl ?? "(none)"}
+                  </div>
+                  <div>head: {gitState.head?.slice(0, 10) ?? "(none)"}</div>
+                  <div>remote head: {gitState.remote?.slice(0, 10) ?? "(none)"}</div>
+                  <div>
+                    state:{" "}
+                    <span className="font-semibold text-text">{gitState.relation}</span>
+                  </div>
+                </div>
+                <p className="mb-3 text-xs text-text-2">
+                  Sync handles all of this automatically — these are recovery tools
+                  for when it can't.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void gitAction("push")}
+                    disabled={busy}
+                    className="rounded border border-border px-2.5 py-1 text-xs hover:bg-surface-2 disabled:opacity-40"
+                  >
+                    Push local
+                  </button>
+                  <button
+                    onClick={() => void gitAction("take-remote")}
+                    disabled={busy}
+                    className="rounded border border-border px-2.5 py-1 text-xs hover:bg-surface-2 disabled:opacity-40"
+                    title="discard local-only commits and take the remote state"
+                  >
+                    Take remote
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!confirmForce) {
+                        setConfirmForce(true);
+                        return;
+                      }
+                      setConfirmForce(false);
+                      void gitAction("force-publish");
+                    }}
+                    disabled={busy}
+                    className={
+                      "rounded px-2.5 py-1 text-xs disabled:opacity-40 " +
+                      (confirmForce
+                        ? "bg-danger text-white"
+                        : "border border-border hover:bg-surface-2")
+                    }
+                    title="overwrite the remote with local history"
+                  >
+                    {confirmForce ? "Really overwrite remote?" : "Force publish"}
+                  </button>
+                  <div className="flex-1" />
+                  <Dialog.Close className="rounded px-2.5 py-1 text-xs hover:bg-surface-2">
+                    Close
+                  </Dialog.Close>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-text-2">loading…</p>
+            )}
           </Dialog.Popup>
         </Dialog.Portal>
       </Dialog.Root>

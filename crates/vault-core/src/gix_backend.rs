@@ -1,4 +1,4 @@
-use crate::git_backend::{GitBackend, Oid, Tree, TreeEntry};
+use crate::git_backend::{Credentials, GitBackend, Oid, Tree, TreeEntry};
 use anyhow::{anyhow, Context, Result};
 use gix::actor::Signature;
 use gix::bstr::ByteSlice;
@@ -15,7 +15,6 @@ pub struct GixBackend {
 }
 
 const MAIN: &str = "refs/heads/main";
-const ORIGIN_MAIN: &str = "refs/remotes/origin/main";
 
 fn sig() -> Signature {
     Signature {
@@ -89,6 +88,73 @@ fn write_node(repo: &gix::Repository, map: &BTreeMap<String, Node>) -> Result<gi
 }
 
 impl GixBackend {
+    fn push_refspec(&self, expected_local: &Oid, creds: Option<&Credentials>, force: bool) -> Result<()> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("push requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        let mut remote = repo.find_remote("origin")?;
+        let mut cbs = git2::RemoteCallbacks::new();
+        let rejected = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let rejected_c = rejected.clone();
+        cbs.push_update_reference(move |refname, status| {
+            if let Some(msg) = status {
+                rejected_c
+                    .borrow_mut()
+                    .push(format!("{refname}: {msg}"));
+            }
+            Ok(())
+        });
+        let creds = creds.cloned();
+        let creds_verify = creds.clone();
+        let workdir_c = workdir.clone();
+        let mut tries = 0usize;
+        cbs.credentials(move |url, username, _allowed| {
+            if let Some(c) = &creds {
+                return git2::Cred::userpass_plaintext(&c.username, &c.password);
+            }
+            tries += 1;
+            if tries == 1 {
+                let helper = (|| {
+                    let repo = git2::Repository::open(&workdir_c)?;
+                    let cfg = repo.config()?;
+                    git2::Cred::credential_helper(&cfg, url, username)
+                })();
+                if let Ok(cred) = helper {
+                    return Ok(cred);
+                }
+            }
+            Err(git2::Error::from_str("authentication required"))
+        });
+        let mut opts = git2::PushOptions::new();
+        opts.remote_callbacks(cbs);
+        let refspec = if force {
+            "+refs/heads/main:refs/heads/main"
+        } else {
+            "refs/heads/main:refs/heads/main"
+        };
+        remote
+            .push(&[refspec], Some(&mut opts))
+            .context("libgit2 push")?;
+        let rejected = rejected.borrow();
+        if !rejected.is_empty() {
+            return Err(anyhow!("push rejected: {}", rejected.join("; ")));
+        }
+        remote.disconnect()?;
+        drop(remote);
+        drop(repo);
+        let actual = self.fetch(creds_verify.as_ref())?;
+        if actual.as_deref() != Some(expected_local.as_str()) {
+            return Err(anyhow!(
+                "remote tip diverged after push: expected {expected_local}, got {:?}",
+                actual
+            ));
+        }
+        Ok(())
+    }
+
     fn write_tree_object(&self, tree: &Tree) -> Result<Oid> {
         let mut root: BTreeMap<String, Node> = BTreeMap::new();
         for (path, entry) in tree {
@@ -183,63 +249,45 @@ impl GitBackend for GixBackend {
         Ok(None)
     }
 
-    fn fetch(&self) -> Result<Option<Oid>> {
+    fn fetch(&self, creds: Option<&Credentials>) -> Result<Option<Oid>> {
         let remote = self.repo.find_remote("origin")?;
-        let prep = remote
-            .connect(Direction::Fetch)?
+        let mut con = remote.connect(Direction::Fetch)?;
+        match creds {
+            Some(c) => {
+                let account = gix::sec::identity::Account {
+                    username: c.username.clone(),
+                    password: c.password.clone(),
+                    oauth_refresh_token: None,
+                };
+                con.set_credentials(move |_action| {
+                    Ok(Some(gix::credentials::protocol::Outcome {
+                        identity: account.clone(),
+                        next: gix::credentials::helper::NextAction::from(
+                            gix::credentials::protocol::Context::default(),
+                        ),
+                    }))
+                });
+            }
+            None => {
+                con.set_credentials(|_action| {
+                    Err(gix::Error::from_error(crate::git_backend::AuthRequired))
+                });
+            }
+        }
+        let prep = con
             .prepare_fetch(gix::progress::Discard, Default::default())
             .context("prepare_fetch")?;
         prep.receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
             .context("fetch receive")?;
-        drop(remote);
         self.remote_main_oid()
     }
 
-    fn push_main(&self, expected_local: &Oid) -> Result<()> {
-        let workdir = self
-            .repo
-            .workdir()
-            .ok_or_else(|| anyhow!("push requires a worktree repository"))?
-            .to_path_buf();
-        let repo = git2::Repository::open(&workdir)?;
-        let mut remote = repo.find_remote("origin")?;
-        let mut cbs = git2::RemoteCallbacks::new();
-        let rejected = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
-        let rejected_c = rejected.clone();
-        cbs.push_update_reference(move |refname, status| {
-            if let Some(msg) = status {
-                rejected_c
-                    .borrow_mut()
-                    .push(format!("{refname}: {msg}"));
-            }
-            Ok(())
-        });
-        let workdir_c = workdir.clone();
-        cbs.credentials(move |url, username, _tries| {
-            let repo = git2::Repository::open(&workdir_c)?;
-            let cfg = repo.config()?;
-            git2::Cred::credential_helper(&cfg, url, username)
-        });
-        let mut opts = git2::PushOptions::new();
-        opts.remote_callbacks(cbs);
-        remote
-            .push(&["refs/heads/main:refs/heads/main"], Some(&mut opts))
-            .context("libgit2 push")?;
-        let rejected = rejected.borrow();
-        if !rejected.is_empty() {
-            return Err(anyhow!("push rejected: {}", rejected.join("; ")));
-        }
-        remote.disconnect()?;
-        drop(remote);
-        drop(repo);
-        let actual = self.fetch()?;
-        if actual.as_deref() != Some(expected_local.as_str()) {
-            return Err(anyhow!(
-                "remote tip diverged after push: expected {expected_local}, got {:?}",
-                actual
-            ));
-        }
-        Ok(())
+    fn push_main(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
+        self.push_refspec(expected_local, creds, false)
+    }
+
+    fn force_push_main(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
+        self.push_refspec(expected_local, creds, true)
     }
 
     fn merge_base(&self, a: &Oid, b: &Oid) -> Result<Option<Oid>> {

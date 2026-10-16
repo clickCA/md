@@ -1,10 +1,83 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::Manager;
-use vault_core::git_backend::GitBackend;
+use vault_core::git_backend::{Credentials, GitBackend};
 use vault_core::merge::flatten_blobs;
 use vault_core::vault::Vault;
 use vault_core::{sync, SyncOutcome};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CredDto {
+    username: String,
+    password: String,
+}
+
+impl CredDto {
+    fn creds(&self) -> Credentials {
+        Credentials {
+            username: self.username.clone(),
+            password: self.password.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStateDto {
+    remote_url: Option<String>,
+    head: Option<String>,
+    remote: Option<String>,
+    relation: String,
+}
+
+fn git_state(vault: &Vault) -> Result<GitStateDto, String> {
+    let remote_url = vault.git.remote_url().map_err(|e| e.to_string())?;
+    let head = vault.git.head_oid().map_err(|e| e.to_string())?;
+    let remote = vault.git.remote_main_oid().map_err(|e| e.to_string())?;
+    let relation = if remote_url.is_none() {
+        "no-remote".to_string()
+    } else if remote.is_none() && head.is_none() {
+        "empty".to_string()
+    } else if remote.is_none() {
+        "not-published".to_string()
+    } else if head.is_none() {
+        "remote-only".to_string()
+    } else if head == remote {
+        "in-sync".to_string()
+    } else {
+        let h = head.clone().unwrap();
+        let r = remote.clone().unwrap();
+        match vault.git.merge_base(&h, &r) {
+            Ok(Some(mb)) if mb == r => "ahead".to_string(),
+            Ok(Some(mb)) if mb == h => "behind".to_string(),
+            Ok(Some(_)) => "diverged".to_string(),
+            Ok(None) => "unrelated".to_string(),
+            Err(_) => "unknown".to_string(),
+        }
+    };
+    Ok(GitStateDto { remote_url, head, remote, relation })
+}
+
+#[tauri::command]
+fn git_state_cmd(dir: String) -> Result<GitStateDto, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    git_state(&vault)
+}
+
+#[tauri::command]
+fn git_action(dir: String, action: String, credentials: Option<CredDto>) -> Result<GitStateDto, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let creds = credentials.as_ref().map(|c| c.creds());
+    let result = match action.as_str() {
+        "push" => sync::push_now(&vault, creds.as_ref()),
+        "take-remote" => sync::take_remote(&vault, creds.as_ref()),
+        "force-publish" => sync::force_publish(&vault, creds.as_ref()),
+        other => Err(anyhow::anyhow!("unknown action: {other}")),
+    };
+    result.map_err(|e| e.to_string())?;
+    git_state(&vault)
+}
 
 #[tauri::command]
 fn default_vault_dir(app: tauri::AppHandle) -> Result<String, String> {
@@ -268,14 +341,23 @@ fn sync_dto(outcome: SyncOutcome) -> SyncDto {
 }
 
 #[tauri::command]
-fn vault_sync(dir: String) -> Result<SyncDto, String> {
+fn vault_sync(dir: String, credentials: Option<CredDto>) -> Result<SyncDto, String> {
     let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
-    let outcome = sync::sync(&vault).map_err(|e| e.to_string())?;
+    let creds = credentials.as_ref().map(|c| c.creds());
+    let outcome = sync::sync_with(&vault, creds.as_ref()).map_err(|e| e.to_string())?;
     Ok(sync_dto(outcome))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // never let git credential helpers or askpass prompt on a terminal —
+    // auth surfaces in the UI as a typed "authentication required" error
+    unsafe {
+        std::env::set_var("GIT_TERMINAL_PROMPT", "0");
+        std::env::set_var("GIT_ASKPASS", "/bin/true");
+        std::env::set_var("SSH_ASKPASS", "/bin/true");
+        std::env::set_var("GIT_TERMINAL_PROMPT", "0");
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -291,7 +373,9 @@ pub fn run() {
             note_delete,
             search_notes,
             save_image,
-            read_file_bytes
+            read_file_bytes,
+            git_state_cmd,
+            git_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
