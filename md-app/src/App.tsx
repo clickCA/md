@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Dialog } from "@base-ui/react/dialog";
 import { CloudUpload, FilePlus2, Moon, Sun, Trash2 } from "lucide-react";
-import MarkdownEditor from "./components/MarkdownEditor";
+import LiveMarkdownEditor from "./components/LiveMarkdownEditor";
 import ConflictCard from "./components/ConflictCard";
 
 interface Conflict {
@@ -365,13 +365,7 @@ export default function App() {
                   Save ⌘S
                 </button>
               </div>
-              <MarkdownEditor
-                path={notePath}
-                initialBody={body}
-                dark={dark}
-                onChange={onEditorChange}
-                onSave={() => void saveNote(body)}
-              />
+              <LiveMarkdownEditor body={body} onChange={onEditorChange} />
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-text-2">
