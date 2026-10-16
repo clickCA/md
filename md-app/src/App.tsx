@@ -48,6 +48,17 @@ interface SyncResult {
 const DEFAULT_DIR = "/tmp/md-vault";
 const DEFAULT_REMOTE = "/tmp/md-remote.git";
 
+/** Platform-appropriate vault location (app-sandboxed on mobile). */
+async function resolveDefaultDir(): Promise<string> {
+  try {
+    const d = await invoke<string>("default_vault_dir");
+    if (d) return d;
+  } catch {
+    // fall back to the desktop demo default
+  }
+  return DEFAULT_DIR;
+}
+
 function short(oid: string | null): string {
   return oid ? oid.slice(0, 7) : "—";
 }
@@ -132,6 +143,10 @@ export default function App() {
     window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,
   );
   const { status, notes, error, busy, run, refresh } = useVault(dir);
+
+  useEffect(() => {
+    void resolveDefaultDir().then(setDir);
+  }, []);
 
   const [notePath, setNotePath] = useState<string | null>(null);
   const [body, setBody] = useState("");

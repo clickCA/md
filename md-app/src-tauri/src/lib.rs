@@ -1,9 +1,21 @@
 use serde::Serialize;
 use std::path::PathBuf;
+use tauri::Manager;
 use vault_core::git_backend::GitBackend;
 use vault_core::merge::flatten_blobs;
 use vault_core::vault::Vault;
 use vault_core::{sync, SyncOutcome};
+
+#[tauri::command]
+fn default_vault_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {e}"))?;
+    let vault = base.join("vault");
+    std::fs::create_dir_all(&vault).map_err(|e| e.to_string())?;
+    Ok(vault.to_string_lossy().to_string())
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,6 +181,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            default_vault_dir,
             vault_open,
             vault_init,
             vault_status,
