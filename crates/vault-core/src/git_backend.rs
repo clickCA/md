@@ -31,4 +31,7 @@ pub trait GitBackend {
     fn create_commit(&self, tree: &Tree, parents: &[Oid], message: &str) -> Result<Oid>;
     fn update_main(&self, commit: &Oid) -> Result<()>;
     fn head_tree(&self) -> Result<Tree>;
+    /// Worktree files eligible for tracking: tracked + untracked, respecting
+    /// .gitignore. Excludes vault bookkeeping files (index.db*).
+    fn list_worktree_files(&self) -> Result<Vec<String>>;
 }

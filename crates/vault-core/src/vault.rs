@@ -11,29 +11,6 @@ pub struct Vault {
     pub db: Db,
 }
 
-fn is_ignored(name: &str) -> bool {
-    name == ".git" || name == "index.db" || name.starts_with("index.db-")
-}
-
-fn walk(root: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
-    let mut entries: Vec<_> = fs::read_dir(root)?.collect::<std::io::Result<_>>()?;
-    entries.sort_by_key(|e| e.file_name());
-    for entry in entries {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if is_ignored(&name) {
-            continue;
-        }
-        let rel = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
-        let path = entry.path();
-        if path.is_dir() {
-            walk(&path, &rel, out)?;
-        } else {
-            out.push((rel, path));
-        }
-    }
-    Ok(())
-}
-
 impl Vault {
     pub fn create_remote(path: &Path) -> Result<()> {
         GixBackend::init_bare(path)?;
@@ -82,9 +59,14 @@ impl Vault {
     }
 
     pub fn fs_files(&self) -> Result<Vec<(String, PathBuf)>> {
-        let mut out = Vec::new();
-        walk(&self.root, "", &mut out)?;
-        Ok(out)
+        let files = self.git.list_worktree_files()?;
+        Ok(files
+            .into_iter()
+            .map(|rel| {
+                let rel2 = rel.clone();
+                (rel, self.root.join(rel2))
+            })
+            .collect())
     }
 
     pub fn fs_tree(&self) -> Result<Tree> {
@@ -104,6 +86,12 @@ impl Vault {
         let head_blobs = crate::merge::flatten_blobs(&head_tree);
         if fs_blobs == head_blobs {
             return Ok(None);
+        }
+        if fs_blobs.len() > 5000 {
+            return Err(anyhow!(
+                "vault has {} eligible files (limit 5000) — add a .gitignore for build output and dependencies first",
+                fs_blobs.len()
+            ));
         }
         let parent = self.git.head_oid()?;
         let commit = self.git.create_commit(&fs_tree, &parent.into_iter().collect::<Vec<_>>(), message)?;

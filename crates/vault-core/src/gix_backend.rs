@@ -322,4 +322,32 @@ impl GitBackend for GixBackend {
             None => Ok(Tree::new()),
         }
     }
+
+    fn list_worktree_files(&self) -> Result<Vec<String>> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(true)
+            .include_unmodified(true)
+            .include_ignored(false)
+            .recurse_untracked_dirs(true);
+        let statuses = repo.statuses(Some(&mut opts))?;
+        let mut files = Vec::new();
+        for entry in statuses.iter() {
+            let Ok(rel) = entry.path() else { continue };
+            let name = rel.rsplit('/').next().unwrap_or(rel);
+            if name == "index.db" || name.starts_with("index.db-") {
+                continue;
+            }
+            if workdir.join(rel).is_file() {
+                files.push(rel.to_string());
+            }
+        }
+        files.sort();
+        Ok(files)
+    }
 }

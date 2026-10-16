@@ -1,5 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
+use vault_core::git_backend::GitBackend;
 use vault_core::sync;
 use vault_core::vault::Vault;
 
@@ -188,6 +189,33 @@ fn nested_paths_and_subdirectories_sync() {
     sync::sync(&e.b).expect("b push");
     sync::sync(&e.a).expect("a pull");
     assert_eq!(note(&e.a, "journal/2026/okt.md"), "# Oktober\n");
+}
+
+#[test]
+fn respects_gitignore_when_committing() {
+    let e = setup();
+
+    e.a.write_note(".gitignore", "node_modules/\n*.log\n").unwrap();
+    e.a.write_note("note.md", "real content\n").unwrap();
+    e.a
+        .write_note("node_modules/junk.js", "huge dependency\n")
+        .unwrap();
+    e.a.write_note("debug.log", "noise\n").unwrap();
+
+    sync::sync(&e.a).expect("a push");
+
+    let tracked = e.a.git.head_tree().unwrap();
+    let blobs = vault_core::merge::flatten_blobs(&tracked);
+    assert!(blobs.contains_key("note.md"));
+    assert!(blobs.contains_key(".gitignore"));
+    assert!(!blobs.contains_key("node_modules/junk.js"));
+    assert!(!blobs.contains_key("debug.log"));
+
+    // note_list must not surface ignored files either
+    sync::sync(&e.b).expect("b pull");
+    let on_b = std::fs::read_to_string(e.b.root.join("note.md")).unwrap();
+    assert_eq!(on_b, "real content\n");
+    assert!(!e.b.root.join("node_modules/junk.js").exists());
 }
 
 #[test]
