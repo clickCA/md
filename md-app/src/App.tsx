@@ -10,11 +10,11 @@ import {
   Moon,
   Settings,
   Sun,
-  Trash2,
   X,
 } from "lucide-react";
 import LiveMarkdownEditor from "./components/LiveMarkdownEditor";
 import ConflictCard from "./components/ConflictCard";
+import FileTree from "./components/FileTree";
 
 interface Conflict {
   path: string;
@@ -107,44 +107,14 @@ function useVault(dir: string) {
   return { status, notes, error, busy, run, refresh, setError };
 }
 
-function NotesList({
-  notes,
-  activeNote,
-  onPick,
-  onDelete,
-}: {
+function NotesList(props: {
   notes: string[];
   activeNote: string | null;
   onPick: (path: string) => void;
   onDelete: (path: string) => void;
+  alwaysShowDelete?: boolean;
 }) {
-  return (
-    <ul className="min-h-0 flex-1 overflow-y-auto">
-      {notes.map((n) => (
-        <li key={n} className="group flex items-center">
-          <button
-            onClick={() => onPick(n)}
-            className={
-              "flex-1 truncate px-3 py-2.5 text-left text-sm hover:bg-surface-2 md:py-1.5 " +
-              (n === activeNote ? "font-medium text-accent" : "")
-            }
-          >
-            {n}
-          </button>
-          <button
-            onClick={() => onDelete(n)}
-            className="mr-1 rounded p-1.5 text-text-2 hover:text-danger md:hidden group-hover:block"
-            title="delete"
-          >
-            <Trash2 size={14} />
-          </button>
-        </li>
-      ))}
-      {notes.length === 0 && (
-        <li className="px-3 py-2 text-xs text-text-2">no notes yet</li>
-      )}
-    </ul>
-  );
+  return <FileTree {...props} />;
 }
 
 export default function App() {
@@ -420,7 +390,7 @@ export default function App() {
               <FilePlus2 size={14} />
             </button>
           </div>
-          <NotesList {...notesListHandlers} onPick={loadNote} />
+          <NotesList {...notesListHandlers} onPick={loadNote} alwaysShowDelete={false} />
         </aside>
 
         {/* mobile drawer */}
@@ -459,6 +429,7 @@ export default function App() {
                   setMenuOpen(false);
                   loadNote(p);
                 }}
+                alwaysShowDelete
               />
             </div>
           </div>
