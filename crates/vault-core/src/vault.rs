@@ -78,7 +78,68 @@ impl Vault {
         }
         Ok(tree)
     }
+}
 
+#[derive(Debug, Clone)]
+pub struct SearchMatch {
+    pub line: usize,
+    pub snippet: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchHit {
+    pub path: String,
+    pub matches: Vec<SearchMatch>,
+}
+
+impl Vault {
+    /// Case-insensitive multi-term search (all terms must appear on a line).
+    /// Returns up to `limit` hits, each with up to 5 matching lines.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+        let terms: Vec<String> = query
+            .split_whitespace()
+            .map(|t| t.to_lowercase())
+            .collect();
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut hits = Vec::new();
+        for (rel, path) in self.fs_files()? {
+            if !rel.ends_with(".md") {
+                continue;
+            }
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let mut matches = Vec::new();
+            for (i, line) in content.lines().enumerate() {
+                let lower = line.to_lowercase();
+                if terms.iter().all(|t| lower.contains(t)) {
+                    let trimmed = line.trim();
+                    let snippet = if trimmed.len() > 120 {
+                        format!("{}…", &trimmed[..120])
+                    } else {
+                        trimmed.to_string()
+                    };
+                    matches.push(SearchMatch { line: i + 1, snippet });
+                    if matches.len() >= 5 {
+                        break;
+                    }
+                }
+            }
+            if !matches.is_empty() {
+                hits.push(SearchHit { path: rel, matches });
+                if hits.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(hits)
+    }
+}
+
+impl Vault {
     pub fn commit_pending(&self, message: &str) -> Result<Option<Oid>> {
         let fs_tree = self.fs_tree()?;
         let head_tree = self.git.head_tree()?;

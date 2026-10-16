@@ -158,6 +158,37 @@ fn note_write(dir: String, path: String, content: String) -> Result<(), String> 
     vault.write_note(&path, &content).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMatchDto {
+    line: usize,
+    snippet: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchHitDto {
+    path: String,
+    matches: Vec<SearchMatchDto>,
+}
+
+#[tauri::command]
+fn search_notes(dir: String, query: String) -> Result<Vec<SearchHitDto>, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let hits = vault.search(&query, 200).map_err(|e| e.to_string())?;
+    Ok(hits
+        .into_iter()
+        .map(|h| SearchHitDto {
+            path: h.path,
+            matches: h
+                .matches
+                .into_iter()
+                .map(|m| SearchMatchDto { line: m.line, snippet: m.snippet })
+                .collect(),
+        })
+        .collect())
+}
+
 #[tauri::command]
 fn note_list(dir: String) -> Result<Vec<String>, String> {
     let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
@@ -218,7 +249,8 @@ pub fn run() {
             note_list,
             note_read,
             note_write,
-            note_delete
+            note_delete,
+            search_notes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

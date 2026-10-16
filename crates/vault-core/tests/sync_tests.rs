@@ -219,6 +219,26 @@ fn respects_gitignore_when_committing() {
 }
 
 #[test]
+fn search_finds_terms_across_notes() {
+    let e = setup();
+
+    e.a.write_note("a.md", "the quick brown fox\nsecond line\n").unwrap();
+    e.a.write_note("dir/b.md", "brown bears sleep\n").unwrap();
+    e.a.write_note("dir/c.md", "nothing relevant\n").unwrap();
+
+    let hits = e.a.search("BROWN", 50).unwrap();
+    assert_eq!(hits.len(), 2, "case-insensitive: {hits:?}");
+
+    let hits = e.a.search("quick fox", 50).unwrap();
+    assert_eq!(hits.len(), 1, "multi-term AND on one line");
+    assert_eq!(hits[0].path, "a.md");
+    assert_eq!(hits[0].matches[0].line, 1);
+
+    assert!(e.a.search("zebra", 50).unwrap().is_empty());
+    assert!(e.a.search("   ", 50).unwrap().is_empty());
+}
+
+#[test]
 fn line_merge_unit_cases() {
     use vault_core::merge::try_line_merge;
     let clean = try_line_merge(b"a\nb\nc\n", b"A\nb\nc\n", b"a\nb\nC\n").unwrap();

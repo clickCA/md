@@ -15,6 +15,8 @@ import {
 import LiveMarkdownEditor from "./components/LiveMarkdownEditor";
 import ConflictCard from "./components/ConflictCard";
 import FileTree from "./components/FileTree";
+import SearchResults, { type SearchHit } from "./components/SearchResults";
+import { Search } from "lucide-react";
 
 interface Conflict {
   path: string;
@@ -138,6 +140,8 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [setupDir, setSetupDir] = useState<string | null>(null);
   const [setupRemote, setSetupRemote] = useState("");
+  const [query, setQuery] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelAutosave = () => {
@@ -152,6 +156,21 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  // debounced vault-wide search
+  useEffect(() => {
+    const q = query.trim();
+    if (!q || !status) {
+      setSearchHits(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      invoke<SearchHit[]>("search_notes", { dir, query: q })
+        .then(setSearchHits)
+        .catch(() => setSearchHits([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query, dir, status]);
 
   /** Native folder picker → probe → open, or offer one-step vault setup. */
   const pickVault = async () => {
@@ -295,6 +314,30 @@ export default function App() {
     onDelete: deleteNote,
   };
 
+  const searchBox = (
+    <div className="relative px-2 py-1.5">
+      <Search
+        size={13}
+        className="absolute left-4 top-1/2 -translate-y-1/2 text-text-2"
+      />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search notes…"
+        className="w-full rounded border border-border bg-surface-2 py-1 pl-7 pr-6 text-xs outline-none focus:border-accent"
+      />
+      {query && (
+        <button
+          onClick={() => setQuery("")}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-text-2 hover:text-text"
+          title="clear"
+        >
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div
       className="flex h-full flex-col pb-[env(safe-area-inset-bottom)]"
@@ -379,6 +422,7 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         {/* desktop sidebar */}
         <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface md:flex">
+          {searchBox}
           <div className="flex items-center justify-between px-3 py-2">
             <span className="text-xs font-medium text-text-2">NOTES</span>
             <button
@@ -390,7 +434,16 @@ export default function App() {
               <FilePlus2 size={14} />
             </button>
           </div>
-          <NotesList {...notesListHandlers} onPick={loadNote} alwaysShowDelete={false} />
+          {searchHits ? (
+            <SearchResults
+              query={query}
+              results={searchHits}
+              activeNote={notePath}
+              onPick={loadNote}
+            />
+          ) : (
+            <NotesList {...notesListHandlers} onPick={loadNote} alwaysShowDelete={false} />
+          )}
         </aside>
 
         {/* mobile drawer */}
@@ -423,14 +476,27 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <NotesList
-                {...notesListHandlers}
-                onPick={(p) => {
-                  setMenuOpen(false);
-                  loadNote(p);
-                }}
-                alwaysShowDelete
-              />
+              {searchBox}
+              {searchHits ? (
+                <SearchResults
+                  query={query}
+                  results={searchHits}
+                  activeNote={notePath}
+                  onPick={(p) => {
+                    setMenuOpen(false);
+                    loadNote(p);
+                  }}
+                />
+              ) : (
+                <NotesList
+                  {...notesListHandlers}
+                  onPick={(p) => {
+                    setMenuOpen(false);
+                    loadNote(p);
+                  }}
+                  alwaysShowDelete
+                />
+              )}
             </div>
           </div>
         )}
