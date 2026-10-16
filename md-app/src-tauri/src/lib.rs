@@ -106,15 +106,49 @@ fn status(vault: &Vault) -> Result<StatusDto, String> {
     })
 }
 
-#[tauri::command]
-fn vault_open(dir: String) -> Result<StatusDto, String> {
-    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
-    status(&vault)
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProbeDto {
+    exists: bool,
+    is_vault: bool,
+    remote_url: Option<String>,
+    note_count: Option<u64>,
 }
 
 #[tauri::command]
-fn vault_init(dir: String, remote_url: String) -> Result<StatusDto, String> {
-    let vault = Vault::create(&PathBuf::from(&dir), Some(&remote_url)).map_err(|e| e.to_string())?;
+fn vault_probe(dir: String) -> ProbeDto {
+    let p = PathBuf::from(&dir);
+    let is_vault = p.join(".git").exists();
+    let mut remote_url = None;
+    let mut note_count = None;
+    if is_vault {
+        if let Ok(v) = Vault::open(&p) {
+            remote_url = v.git.remote_url().ok().flatten();
+            note_count = v.fs_files().map(|f| f.len() as u64).ok();
+        }
+    }
+    ProbeDto { exists: p.exists(), is_vault, remote_url, note_count }
+}
+
+/// Open the folder as a vault, creating one if it is not a vault yet.
+/// Existing vaults get their remote updated when `remote_url` is provided.
+#[tauri::command]
+fn vault_make(dir: String, remote_url: Option<String>) -> Result<StatusDto, String> {
+    let p = PathBuf::from(&dir);
+    if p.join(".git").exists() {
+        let mut v = Vault::open(&p).map_err(|e| e.to_string())?;
+        if let Some(url) = remote_url {
+            v.git.set_remote(&url).map_err(|e| e.to_string())?;
+        }
+        return status(&v);
+    }
+    let v = Vault::create(&p, remote_url.as_deref()).map_err(|e| e.to_string())?;
+    status(&v)
+}
+
+#[tauri::command]
+fn vault_open(dir: String) -> Result<StatusDto, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
     status(&vault)
 }
 
@@ -180,10 +214,11 @@ fn vault_sync(dir: String) -> Result<SyncDto, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             default_vault_dir,
-            vault_open,
-            vault_init,
+            vault_probe,
+            vault_make,
             vault_status,
             vault_sync,
             note_list,

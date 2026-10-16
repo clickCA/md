@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Dialog } from "@base-ui/react/dialog";
 import {
   CloudUpload,
   FilePlus2,
+  FolderOpen,
   Menu,
   Moon,
   Settings,
@@ -45,8 +47,14 @@ interface SyncResult {
   conflicts: Conflict[];
 }
 
+interface Probe {
+  exists: boolean;
+  isVault: boolean;
+  remoteUrl: string | null;
+  noteCount: number | null;
+}
+
 const DEFAULT_DIR = "/tmp/md-vault";
-const DEFAULT_REMOTE = "/tmp/md-remote.git";
 
 /** Platform-appropriate vault location (app-sandboxed on mobile). */
 async function resolveDefaultDir(): Promise<string> {
@@ -84,14 +92,17 @@ function useVault(dir: string) {
     [],
   );
 
-  const refresh = useCallback(async () => {
-    const [s, n] = await Promise.all([
-      invoke<Status>("vault_status", { dir }),
-      invoke<string[]>("note_list", { dir }),
-    ]);
-    setStatus(s);
-    setNotes(n);
-  }, [dir]);
+  const refresh = useCallback(
+    async (d: string = dir) => {
+      const [s, n] = await Promise.all([
+        invoke<Status>("vault_status", { dir: d }),
+        invoke<string[]>("note_list", { dir: d }),
+      ]);
+      setStatus(s);
+      setNotes(n);
+    },
+    [dir],
+  );
 
   return { status, notes, error, busy, run, refresh, setError };
 }
@@ -138,7 +149,6 @@ function NotesList({
 
 export default function App() {
   const [dir, setDir] = useState(DEFAULT_DIR);
-  const [remoteUrl, setRemoteUrl] = useState(DEFAULT_REMOTE);
   const [dark, setDark] = useState(
     window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false,
   );
@@ -156,6 +166,8 @@ export default function App() {
   const [newNoteName, setNewNoteName] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [setupDir, setSetupDir] = useState<string | null>(null);
+  const [setupRemote, setSetupRemote] = useState("");
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelAutosave = () => {
@@ -171,12 +183,33 @@ export default function App() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  const openVault = () => run("open", () => refresh());
+  /** Native folder picker → probe → open, or offer one-step vault setup. */
+  const pickVault = async () => {
+    const picked = await openDialog({
+      directory: true,
+      multiple: false,
+      title: "Choose vault folder",
+    });
+    if (typeof picked !== "string" || !picked) return;
+    const probe = await invoke<Probe>("vault_probe", { dir: picked });
+    if (probe.isVault) {
+      setDir(picked);
+      await run("open", async () => {
+        await invoke<Status>("vault_open", { dir: picked });
+        await refresh(picked);
+      });
+    } else {
+      setDir(picked);
+      setSetupRemote(probe.remoteUrl ?? "");
+      setSetupDir(picked);
+    }
+  };
 
-  const initVault = () =>
-    run("init", async () => {
-      await invoke<Status>("vault_init", { dir, remoteUrl });
-      await refresh();
+  const connectVault = (d: string, remote: string | null) =>
+    run("connect", async () => {
+      await invoke<Status>("vault_make", { dir: d, remoteUrl: remote });
+      await refresh(d);
+      setSetupDir(null);
     });
 
   const reloadOpenNote = useCallback(
@@ -309,25 +342,19 @@ export default function App() {
         </button>
         <span className="hidden text-sm font-semibold tracking-wide md:inline">md</span>
 
-        {/* desktop vault config */}
+        {/* desktop vault actions */}
         <div className="hidden items-center gap-3 md:flex">
-          <input
-            value={dir}
-            onChange={(e) => setDir(e.target.value)}
-            className="w-56 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-2"
-            placeholder="vault directory"
-          />
-          <input
-            value={remoteUrl}
-            onChange={(e) => setRemoteUrl(e.target.value)}
-            className="w-56 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-2"
-            placeholder="git remote"
-          />
-          <button onClick={openVault} disabled={busy} className="rounded px-2 py-1 text-xs hover:bg-surface-2">
-            Open
-          </button>
-          <button onClick={initVault} disabled={busy} className="rounded px-2 py-1 text-xs hover:bg-surface-2">
-            Init
+          <span
+            className="max-w-40 truncate text-xs text-text-2"
+            title={dir}
+          >
+            {dir.split("/").filter(Boolean).pop() ?? dir}
+          </span>
+          <button
+            onClick={() => void pickVault()}
+            className="flex items-center gap-1.5 rounded px-2 py-1 text-xs hover:bg-surface-2"
+          >
+            <FolderOpen size={13} /> Open vault…
           </button>
         </div>
 
@@ -446,7 +473,9 @@ export default function App() {
                 "px-4 py-1.5 text-xs " +
                 (syncResult.conflicts.length > 0
                   ? "bg-danger/10 text-danger"
-                  : "bg-ok/10 text-ok")
+                  : syncResult.action.startsWith("no remote")
+                    ? "bg-warn/10 text-warn"
+                    : "bg-ok/10 text-ok")
               }
             >
               {syncResult.action} → {short(syncResult.head)}
@@ -515,22 +544,36 @@ export default function App() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      {/* vault settings dialog (mobile) */}
+      {/* vault settings dialog */}
       <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
         <Dialog.Portal>
           <Dialog.Backdrop className="fixed inset-0 bg-black/30" />
           <Dialog.Popup className="fixed left-1/2 top-1/4 w-96 max-w-[92vw] -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
             <Dialog.Title className="mb-3 text-sm font-semibold">Vault</Dialog.Title>
-            <label className="mb-1 block text-xs text-text-2">directory</label>
+            <label className="mb-1 block text-xs text-text-2">folder</label>
+            <div className="mb-3 flex gap-2">
+              <input
+                value={dir}
+                readOnly
+                className="min-w-0 flex-1 rounded border border-border bg-surface-2 px-2 py-1.5 text-sm text-text-2 outline-none"
+              />
+              <button
+                onClick={() => {
+                  setSettingsOpen(false);
+                  void pickVault();
+                }}
+                className="flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-surface-2"
+              >
+                <FolderOpen size={13} /> Choose…
+              </button>
+            </div>
+            <label className="mb-1 block text-xs text-text-2">
+              git remote (optional — leave empty for a local-only vault)
+            </label>
             <input
-              value={dir}
-              onChange={(e) => setDir(e.target.value)}
-              className="mb-3 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
-            />
-            <label className="mb-1 block text-xs text-text-2">git remote</label>
-            <input
-              value={remoteUrl}
-              onChange={(e) => setRemoteUrl(e.target.value)}
+              value={setupRemote}
+              onChange={(e) => setSetupRemote(e.target.value)}
+              placeholder="https://github.com/you/notes.git"
               className="mb-4 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
             />
             <div className="flex justify-end gap-2">
@@ -539,21 +582,53 @@ export default function App() {
               </Dialog.Close>
               <button
                 onClick={() => {
-                  void openVault();
+                  void connectVault(
+                    dir,
+                    setupRemote.trim() ? setupRemote.trim() : null,
+                  );
                   setSettingsOpen(false);
                 }}
-                className="rounded border border-border px-2.5 py-1 text-xs hover:bg-surface-2"
+                disabled={busy}
+                className="rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90 disabled:opacity-40"
               >
-                Open
+                Save
               </button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* vault setup dialog (picked folder is not a vault yet) */}
+      <Dialog.Root open={setupDir !== null} onOpenChange={(o) => !o && setSetupDir(null)}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 bg-black/30" />
+          <Dialog.Popup className="fixed left-1/2 top-1/4 w-96 max-w-[92vw] -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
+            <Dialog.Title className="mb-1 text-sm font-semibold">
+              Set up this folder as a vault?
+            </Dialog.Title>
+            <p className="mb-3 text-xs text-text-2">
+              <span className="font-mono">{setupDir}</span> is not a vault yet. We'll
+              turn on Git tracking for it. Files stay plain markdown.
+            </p>
+            <label className="mb-1 block text-xs text-text-2">
+              git remote (optional — you can add one later in settings)
+            </label>
+            <input
+              value={setupRemote}
+              onChange={(e) => setSetupRemote(e.target.value)}
+              placeholder="https://github.com/you/notes.git"
+              className="mb-4 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <div className="flex justify-end gap-2">
+              <Dialog.Close className="rounded px-2.5 py-1 text-xs hover:bg-surface-2">
+                Cancel
+              </Dialog.Close>
               <button
-                onClick={() => {
-                  void initVault();
-                  setSettingsOpen(false);
-                }}
-                className="rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90"
+                onClick={() => void connectVault(setupDir!, setupRemote.trim() || null)}
+                disabled={busy}
+                className="rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90 disabled:opacity-40"
               >
-                Init
+                Create vault
               </button>
             </div>
           </Dialog.Popup>

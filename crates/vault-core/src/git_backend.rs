@@ -16,6 +16,7 @@ pub trait GitBackend {
     fn init_bare(path: &Path) -> Result<Self> where Self: Sized;
     fn open(path: &Path) -> Result<Self> where Self: Sized;
     fn set_remote(&mut self, url: &str) -> Result<()>;
+    fn remote_url(&self) -> Result<Option<String>>;
     fn head_oid(&self) -> Result<Option<Oid>>;
     fn remote_main_oid(&self) -> Result<Option<Oid>>;
     fn fetch(&self) -> Result<Option<Oid>>;

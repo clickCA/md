@@ -50,6 +50,16 @@ pub fn sync(vault: &Vault) -> Result<SyncOutcome> {
 fn sync_inner(vault: &Vault, run: i64) -> Result<SyncOutcome> {
     vault.commit_pending("auto: pending changes")?;
     let local = vault.git.head_oid()?;
+
+    if vault.git.remote_url()?.is_none() {
+        return Ok(SyncOutcome {
+            action: "no remote configured (local vault)".into(),
+            head: local,
+            remote: None,
+            conflicts: Vec::new(),
+        });
+    }
+
     vault.db.event(run, "fetching")?;
     let remote = vault.git.fetch()?;
     abort_point("fetching");

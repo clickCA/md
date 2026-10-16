@@ -154,6 +154,13 @@ impl GitBackend for GixBackend {
         Ok(())
     }
 
+    fn remote_url(&self) -> Result<Option<String>> {
+        match self.repo.try_find_remote("origin") {
+            Some(Ok(remote)) => Ok(remote.url(Direction::Fetch).map(|u| u.to_string())),
+            _ => Ok(None),
+        }
+    }
+
     fn head_oid(&self) -> Result<Option<Oid>> {
         Ok(self
             .repo
