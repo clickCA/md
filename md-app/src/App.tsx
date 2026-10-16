@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Menu,
   Moon,
+  PanelLeft,
   Settings,
   Sun,
   X,
@@ -142,7 +143,33 @@ export default function App() {
   const [setupRemote, setSetupRemote] = useState("");
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem("md.sidebarOpen") !== "0",
+  );
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const w = parseInt(localStorage.getItem("md.sidebarWidth") ?? "224", 10);
+    return Number.isFinite(w) ? Math.min(480, Math.max(160, w)) : 224;
+  });
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem("md.sidebarOpen", sidebarOpen ? "1" : "0");
+  }, [sidebarOpen]);
+  useEffect(() => {
+    localStorage.setItem("md.sidebarWidth", String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) =>
+      setSidebarWidth(Math.min(480, Math.max(160, ev.clientX)));
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   const cancelAutosave = () => {
     if (autosaveTimer.current) {
@@ -353,6 +380,13 @@ export default function App() {
           <Menu size={18} />
         </button>
         <span className="hidden text-sm font-semibold tracking-wide md:inline">md</span>
+        <button
+          onClick={() => setSidebarOpen((o) => !o)}
+          className="hidden rounded p-1.5 text-text-2 hover:bg-surface-2 md:block"
+          title="toggle sidebar"
+        >
+          <PanelLeft size={16} />
+        </button>
 
         {/* desktop vault actions */}
         <div className="hidden items-center gap-3 md:flex">
@@ -421,28 +455,41 @@ export default function App() {
       {/* body */}
       <div className="flex min-h-0 flex-1">
         {/* desktop sidebar */}
-        <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface md:flex">
-          {searchBox}
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-xs font-medium text-text-2">NOTES</span>
-            <button
-              onClick={() => setNewNoteOpen(true)}
-              disabled={!status}
-              className="rounded p-1 text-text-2 hover:bg-surface-2 disabled:opacity-40"
-              title="new note"
-            >
-              <FilePlus2 size={14} />
-            </button>
-          </div>
-          {searchHits ? (
-            <SearchResults
-              query={query}
-              results={searchHits}
-              activeNote={notePath}
-              onPick={loadNote}
-            />
-          ) : (
-            <NotesList {...notesListHandlers} onPick={loadNote} alwaysShowDelete={false} />
+        <aside
+          className="relative hidden shrink-0 flex-col border-r border-border bg-surface md:flex"
+          style={{ width: sidebarOpen ? sidebarWidth : 0, overflow: "hidden" }}
+        >
+          {sidebarOpen && (
+            <>
+              {searchBox}
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-xs font-medium text-text-2">NOTES</span>
+                <button
+                  onClick={() => setNewNoteOpen(true)}
+                  disabled={!status}
+                  className="rounded p-1 text-text-2 hover:bg-surface-2 disabled:opacity-40"
+                  title="new note"
+                >
+                  <FilePlus2 size={14} />
+                </button>
+              </div>
+              {searchHits ? (
+                <SearchResults
+                  query={query}
+                  results={searchHits}
+                  activeNote={notePath}
+                  onPick={loadNote}
+                />
+              ) : (
+                <NotesList {...notesListHandlers} onPick={loadNote} alwaysShowDelete={false} />
+              )}
+              <div
+                onMouseDown={startResize}
+                onDoubleClick={() => setSidebarWidth(224)}
+                className="absolute inset-y-0 right-0 z-10 w-1 cursor-col-resize hover:bg-accent/40"
+                title="drag to resize · double-click to reset"
+              />
+            </>
           )}
         </aside>
 
@@ -541,7 +588,7 @@ export default function App() {
                   Save ⌘S
                 </button>
               </div>
-              <LiveMarkdownEditor body={body} onChange={onEditorChange} />
+              <LiveMarkdownEditor dir={dir} body={body} dark={dark} onChange={onEditorChange} />
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-2">

@@ -190,6 +190,45 @@ fn search_notes(dir: String, query: String) -> Result<Vec<SearchHitDto>, String>
 }
 
 #[tauri::command]
+fn save_image(dir: String, data: String, ext: String) -> Result<String, String> {
+    use base64::Engine;
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let safe_ext: String = ext
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(5)
+        .collect::<String>()
+        .to_lowercase();
+    if safe_ext.is_empty() {
+        return Err("invalid image extension".into());
+    }
+    let assets = vault.root.join("assets");
+    std::fs::create_dir_all(&assets).map_err(|e| e.to_string())?;
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let rel = format!("assets/paste-{millis}.{safe_ext}");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| e.to_string())?;
+    std::fs::write(vault.root.join(&rel), bytes).map_err(|e| e.to_string())?;
+    Ok(rel)
+}
+
+#[tauri::command]
+fn read_file_bytes(dir: String, path: String) -> Result<String, String> {
+    use base64::Engine;
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let p = vault.root.join(&path);
+    if !p.starts_with(&vault.root) {
+        return Err("path escapes vault".into());
+    }
+    let bytes = std::fs::read(&p).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+#[tauri::command]
 fn note_list(dir: String) -> Result<Vec<String>, String> {
     let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
     let mut notes: Vec<String> = vault
@@ -250,7 +289,9 @@ pub fn run() {
             note_read,
             note_write,
             note_delete,
-            search_notes
+            search_notes,
+            save_image,
+            read_file_bytes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

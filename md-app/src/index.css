@@ -16,6 +16,12 @@
   --danger: #b91c1c;
   --ok: #15803d;
   --warn: #b45309;
+  --hl-kw: #7c3aed;
+  --hl-str: #0a7c42;
+  --hl-num: #b45309;
+  --hl-com: #94a3b8;
+  --hl-fn: #1d4ed8;
+  --hl-type: #b91c1c;
 }
 
 .dark {
@@ -30,6 +36,12 @@
   --danger: #f87171;
   --ok: #4ade80;
   --warn: #fbbf24;
+  --hl-kw: #c678dd;
+  --hl-str: #98c379;
+  --hl-num: #d19a66;
+  --hl-com: #7f848e;
+  --hl-fn: #61afef;
+  --hl-type: #e5c07b;
 }
 
 @theme inline {
@@ -108,3 +120,38 @@ body {
 .md-fence-body { color: var(--text-2); font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
 .md-fence-open { background: var(--surface-2); }
 .md-hr { color: var(--border); letter-spacing: 2px; }
+
+/* syntax highlighting (highlight.js output, themed via tokens) */
+.md-fence-body .hljs-keyword, .md-fence-body .hljs-literal, .md-fence-body .hljs-built_in { color: var(--hl-kw); }
+.md-fence-body .hljs-string { color: var(--hl-str); }
+.md-fence-body .hljs-number { color: var(--hl-num); }
+.md-fence-body .hljs-comment { color: var(--hl-com); font-style: italic; }
+.md-fence-body .hljs-title, .md-fence-body .hljs-function { color: var(--hl-fn); }
+.md-fence-body .hljs-type, .md-fence-body .hljs-class { color: var(--hl-type); }
+.md-fence-body .hljs-attr, .md-fence-body .hljs-attribute, .md-fence-body .hljs-variable { color: var(--hl-fn); }
+.md-fence-body .hljs-tag { color: var(--hl-kw); }
+.md-fence-body .hljs-name { color: var(--hl-type); }
+.md-fence-body .hljs-params { color: inherit; }
+
+/* images in the live view: thumbnail keeps line alignment, click to enlarge */
+.md-img {
+  pointer-events: auto;
+  max-height: 27px;
+  max-width: 200px;
+  vertical-align: middle;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+
+/* mermaid blocks: scaled to the space of their source lines */
+.md-mermaid {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+}
+.md-mermaid svg { max-width: 100%; height: 100%; }
