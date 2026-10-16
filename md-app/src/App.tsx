@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Dialog } from "@base-ui/react/dialog";
-import { CloudUpload, FilePlus2, Moon, Sun, Trash2 } from "lucide-react";
+import {
+  CloudUpload,
+  FilePlus2,
+  Menu,
+  Moon,
+  Settings,
+  Sun,
+  Trash2,
+  X,
+} from "lucide-react";
 import LiveMarkdownEditor from "./components/LiveMarkdownEditor";
 import ConflictCard from "./components/ConflictCard";
 
@@ -76,6 +85,46 @@ function useVault(dir: string) {
   return { status, notes, error, busy, run, refresh, setError };
 }
 
+function NotesList({
+  notes,
+  activeNote,
+  onPick,
+  onDelete,
+}: {
+  notes: string[];
+  activeNote: string | null;
+  onPick: (path: string) => void;
+  onDelete: (path: string) => void;
+}) {
+  return (
+    <ul className="min-h-0 flex-1 overflow-y-auto">
+      {notes.map((n) => (
+        <li key={n} className="group flex items-center">
+          <button
+            onClick={() => onPick(n)}
+            className={
+              "flex-1 truncate px-3 py-2.5 text-left text-sm hover:bg-surface-2 md:py-1.5 " +
+              (n === activeNote ? "font-medium text-accent" : "")
+            }
+          >
+            {n}
+          </button>
+          <button
+            onClick={() => onDelete(n)}
+            className="mr-1 rounded p-1.5 text-text-2 hover:text-danger md:hidden group-hover:block"
+            title="delete"
+          >
+            <Trash2 size={14} />
+          </button>
+        </li>
+      ))}
+      {notes.length === 0 && (
+        <li className="px-3 py-2 text-xs text-text-2">no notes yet</li>
+      )}
+    </ul>
+  );
+}
+
 export default function App() {
   const [dir, setDir] = useState(DEFAULT_DIR);
   const [remoteUrl, setRemoteUrl] = useState(DEFAULT_REMOTE);
@@ -90,6 +139,8 @@ export default function App() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [newNoteOpen, setNewNoteOpen] = useState(false);
   const [newNoteName, setNewNoteName] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelAutosave = () => {
@@ -138,6 +189,7 @@ export default function App() {
       setNotePath(path);
       setBody(content);
       setDirty(false);
+      setMenuOpen(false);
     });
 
   const saveNote = useCallback(
@@ -197,49 +249,88 @@ export default function App() {
           ? "synced"
           : "local";
 
+  const pill =
+    syncState === "conflict"
+      ? "bg-danger/10 text-danger"
+      : syncState === "pending" || syncState === "local"
+        ? "bg-warn/10 text-warn"
+        : "bg-ok/10 text-ok";
+  const dot =
+    syncState === "conflict"
+      ? "bg-danger"
+      : syncState === "pending" || syncState === "local"
+        ? "bg-warn"
+        : "bg-ok";
+  const pillLabel =
+    syncState === "synced"
+      ? "synced"
+      : syncState === "local"
+        ? "local only"
+        : syncState === "pending"
+          ? "unsaved"
+          : syncState === "conflict"
+            ? `${status?.conflicts.length} conflicts`
+            : "no vault";
+
+  const notesListHandlers = {
+    notes,
+    activeNote: notePath,
+    onDelete: deleteNote,
+  };
+
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="flex h-full flex-col pb-[env(safe-area-inset-bottom)]"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       {/* header */}
-      <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
-        <span className="text-sm font-semibold tracking-wide">md</span>
-        <input
-          value={dir}
-          onChange={(e) => setDir(e.target.value)}
-          className="w-56 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-2"
-          placeholder="vault directory"
-        />
-        <input
-          value={remoteUrl}
-          onChange={(e) => setRemoteUrl(e.target.value)}
-          className="w-56 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-2"
-          placeholder="git remote"
-        />
+      <header className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2 md:gap-3 md:px-4">
         <button
-          onClick={openVault}
-          disabled={busy}
-          className="rounded px-2 py-1 text-xs hover:bg-surface-2"
+          onClick={() => setMenuOpen(true)}
+          className="rounded p-1.5 text-text-2 hover:bg-surface-2 md:hidden"
+          title="notes"
         >
-          Open
+          <Menu size={18} />
         </button>
+        <span className="hidden text-sm font-semibold tracking-wide md:inline">md</span>
+
+        {/* desktop vault config */}
+        <div className="hidden items-center gap-3 md:flex">
+          <input
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            className="w-56 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-2"
+            placeholder="vault directory"
+          />
+          <input
+            value={remoteUrl}
+            onChange={(e) => setRemoteUrl(e.target.value)}
+            className="w-56 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-2"
+            placeholder="git remote"
+          />
+          <button onClick={openVault} disabled={busy} className="rounded px-2 py-1 text-xs hover:bg-surface-2">
+            Open
+          </button>
+          <button onClick={initVault} disabled={busy} className="rounded px-2 py-1 text-xs hover:bg-surface-2">
+            Init
+          </button>
+        </div>
+
+        {/* mobile: settings */}
         <button
-          onClick={initVault}
-          disabled={busy}
-          className="rounded px-2 py-1 text-xs hover:bg-surface-2"
+          onClick={() => setSettingsOpen(true)}
+          className="rounded p-1.5 text-text-2 hover:bg-surface-2 md:hidden"
+          title="vault settings"
         >
-          Init
+          <Settings size={18} />
         </button>
 
         <div className="flex-1" />
 
-        {/* sync indicator */}
+        {/* sync status pill */}
         <span
           className={
-            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs " +
-            (syncState === "conflict"
-              ? "bg-danger/10 text-danger"
-              : syncState === "pending" || syncState === "local"
-                ? "bg-warn/10 text-warn"
-                : "bg-ok/10 text-ok")
+            "flex items-center gap-1.5 rounded-full px-2 py-1 text-xs md:px-2.5 " + pill
           }
           title={
             status
@@ -248,36 +339,24 @@ export default function App() {
               : "no vault open"
           }
         >
-          <span
-            className={
-              "h-1.5 w-1.5 rounded-full " +
-              (syncState === "conflict"
-                ? "bg-danger"
-                : syncState === "pending" || syncState === "local"
-                  ? "bg-warn"
-                  : "bg-ok")
-            }
-          />
-          {syncState === "synced" && "synced"}
-          {syncState === "local" && "local only"}
-          {syncState === "pending" && "unsaved"}
-          {syncState === "conflict" && `${status?.conflicts.length} conflicts`}
-          {syncState === "idle" && "no vault"}
+          <span className={"h-1.5 w-1.5 rounded-full " + dot} />
+          <span className="hidden sm:inline">{pillLabel}</span>
         </span>
 
         <button
           onClick={doSync}
           disabled={busy || !status}
-          className="flex items-center gap-1.5 rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90 disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded bg-accent px-2 py-1 text-xs text-accent-text hover:opacity-90 disabled:opacity-40 md:px-2.5"
         >
-          <CloudUpload size={13} /> Sync
+          <CloudUpload size={14} />
+          <span className="hidden sm:inline">Sync</span>
         </button>
         <button
           onClick={() => setDark((d) => !d)}
           className="rounded p-1.5 text-text-2 hover:bg-surface-2"
           title="toggle theme"
         >
-          {dark ? <Sun size={14} /> : <Moon size={14} />}
+          {dark ? <Sun size={15} /> : <Moon size={15} />}
         </button>
       </header>
 
@@ -287,8 +366,8 @@ export default function App() {
 
       {/* body */}
       <div className="flex min-h-0 flex-1">
-        {/* sidebar */}
-        <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-surface">
+        {/* desktop sidebar */}
+        <aside className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface md:flex">
           <div className="flex items-center justify-between px-3 py-2">
             <span className="text-xs font-medium text-text-2">NOTES</span>
             <button
@@ -300,32 +379,49 @@ export default function App() {
               <FilePlus2 size={14} />
             </button>
           </div>
-          <ul className="min-h-0 flex-1 overflow-y-auto">
-            {notes.map((n) => (
-              <li key={n} className="group flex items-center">
-                <button
-                  onClick={() => loadNote(n)}
-                  className={
-                    "flex-1 truncate px-3 py-1.5 text-left text-sm hover:bg-surface-2 " +
-                    (n === notePath ? "font-medium text-accent" : "")
-                  }
-                >
-                  {n}
-                </button>
-                <button
-                  onClick={() => deleteNote(n)}
-                  className="mr-1 hidden rounded p-1 text-text-2 hover:text-danger group-hover:block"
-                  title="delete"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </li>
-            ))}
-            {status && notes.length === 0 && (
-              <li className="px-3 py-2 text-xs text-text-2">no notes yet</li>
-            )}
-          </ul>
+          <NotesList {...notesListHandlers} onPick={loadNote} />
         </aside>
+
+        {/* mobile drawer */}
+        {menuOpen && (
+          <div className="fixed inset-0 z-40 md:hidden">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMenuOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-72 flex-col border-r border-border bg-surface shadow-xl">
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-xs font-medium text-text-2">NOTES</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setNewNoteOpen(true);
+                    }}
+                    disabled={!status}
+                    className="rounded p-1.5 text-text-2 hover:bg-surface-2 disabled:opacity-40"
+                    title="new note"
+                  >
+                    <FilePlus2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => setMenuOpen(false)}
+                    className="rounded p-1.5 text-text-2 hover:bg-surface-2"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              <NotesList
+                {...notesListHandlers}
+                onPick={(p) => {
+                  setMenuOpen(false);
+                  loadNote(p);
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* editor */}
         <main className="flex min-w-0 flex-1 flex-col">
@@ -353,8 +449,8 @@ export default function App() {
           )}
           {notePath ? (
             <>
-              <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 text-xs text-text-2">
-                <span>{notePath}</span>
+              <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-text-2 md:px-4">
+                <span className="truncate">{notePath}</span>
                 {dirty && <span className="text-warn">● unsaved</span>}
                 <div className="flex-1" />
                 <button
@@ -368,7 +464,7 @@ export default function App() {
               <LiveMarkdownEditor body={body} onChange={onEditorChange} />
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-text-2">
+            <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-2">
               {status ? "select a note" : "open or init a vault to begin"}
             </div>
           )}
@@ -379,7 +475,7 @@ export default function App() {
       <Dialog.Root open={newNoteOpen} onOpenChange={setNewNoteOpen}>
         <Dialog.Portal>
           <Dialog.Backdrop className="fixed inset-0 bg-black/30" />
-          <Dialog.Popup className="fixed left-1/2 top-1/3 w-80 -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
+          <Dialog.Popup className="fixed left-1/2 top-1/3 w-80 max-w-[90vw] -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
             <Dialog.Title className="mb-2 text-sm font-semibold">New note</Dialog.Title>
             <input
               autoFocus
@@ -398,6 +494,51 @@ export default function App() {
                 className="rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90"
               >
                 Create
+              </button>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* vault settings dialog (mobile) */}
+      <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 bg-black/30" />
+          <Dialog.Popup className="fixed left-1/2 top-1/4 w-96 max-w-[92vw] -translate-x-1/2 rounded-lg border border-border bg-surface p-4 shadow-lg">
+            <Dialog.Title className="mb-3 text-sm font-semibold">Vault</Dialog.Title>
+            <label className="mb-1 block text-xs text-text-2">directory</label>
+            <input
+              value={dir}
+              onChange={(e) => setDir(e.target.value)}
+              className="mb-3 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <label className="mb-1 block text-xs text-text-2">git remote</label>
+            <input
+              value={remoteUrl}
+              onChange={(e) => setRemoteUrl(e.target.value)}
+              className="mb-4 w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-sm outline-none focus:border-accent"
+            />
+            <div className="flex justify-end gap-2">
+              <Dialog.Close className="rounded px-2.5 py-1 text-xs hover:bg-surface-2">
+                Cancel
+              </Dialog.Close>
+              <button
+                onClick={() => {
+                  void openVault();
+                  setSettingsOpen(false);
+                }}
+                className="rounded border border-border px-2.5 py-1 text-xs hover:bg-surface-2"
+              >
+                Open
+              </button>
+              <button
+                onClick={() => {
+                  void initVault();
+                  setSettingsOpen(false);
+                }}
+                className="rounded bg-accent px-2.5 py-1 text-xs text-accent-text hover:opacity-90"
+              >
+                Init
               </button>
             </div>
           </Dialog.Popup>
