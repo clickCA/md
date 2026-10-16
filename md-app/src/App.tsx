@@ -180,11 +180,16 @@ export default function App() {
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
+    const prevCursor = document.body.style.cursor;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
     const onMove = (ev: MouseEvent) =>
       setSidebarWidth(Math.min(480, Math.max(160, ev.clientX)));
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = "";
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -550,7 +555,7 @@ export default function App() {
               <div
                 onMouseDown={startResize}
                 onDoubleClick={() => setSidebarWidth(224)}
-                className="absolute inset-y-0 right-0 z-10 w-1 cursor-col-resize hover:bg-accent/40"
+                className="absolute inset-y-0 -right-1 z-10 w-3 cursor-col-resize hover:bg-accent/40"
                 title="drag to resize · double-click to reset"
               />
             </>
