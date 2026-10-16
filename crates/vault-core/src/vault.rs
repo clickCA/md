@@ -72,8 +72,21 @@ impl Vault {
     pub fn fs_tree(&self) -> Result<Tree> {
         let mut tree = Tree::new();
         for (rel, path) in self.fs_files()? {
+            let meta = fs::metadata(&path)?;
+            let mtime = meta
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as i64)
+                .unwrap_or(0);
+            if let Some((size, mt, oid)) = self.db.cached_blob(&rel) {
+                if size == meta.len() as i64 && mt == mtime {
+                    tree.insert(rel, TreeEntry { oid, is_dir: false });
+                    continue;
+                }
+            }
             let data = fs::read(&path)?;
             let oid = self.git.write_blob(&data)?;
+            let _ = self.db.put_blob_cache(&rel, meta.len() as i64, mtime, &oid);
             tree.insert(rel, TreeEntry { oid, is_dir: false });
         }
         Ok(tree)

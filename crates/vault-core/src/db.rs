@@ -46,6 +46,12 @@ impl Db {
                 conflict_copy TEXT NOT NULL,
                 winner TEXT NOT NULL,
                 resolution TEXT
+            );
+            CREATE TABLE IF NOT EXISTS blob_cache (
+                path TEXT PRIMARY KEY,
+                size INTEGER NOT NULL,
+                mtime INTEGER NOT NULL,
+                oid TEXT NOT NULL
             );",
         )?;
         Ok(Self { conn })
@@ -103,6 +109,26 @@ impl Db {
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Stat cache: (size, mtime_ns) → blob oid, so unchanged files are
+    /// never re-read or re-hashed (the git-index trick, in our own SQLite).
+    pub fn cached_blob(&self, path: &str) -> Option<(i64, i64, String)> {
+        self.conn
+            .query_row(
+                "SELECT size, mtime, oid FROM blob_cache WHERE path = ?1",
+                [path],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .ok()
+    }
+
+    pub fn put_blob_cache(&self, path: &str, size: i64, mtime: i64, oid: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO blob_cache (path, size, mtime, oid) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![path, size, mtime, oid],
+        )?;
+        Ok(())
     }
 
     pub fn last_run(&self) -> Result<Option<RunRow>> {
