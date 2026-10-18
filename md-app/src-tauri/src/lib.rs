@@ -327,6 +327,80 @@ fn note_delete(dir: String, path: String) -> Result<(), String> {
     vault.delete_note(&path).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteStatusDto {
+    path: String,
+    status: String,
+}
+
+/// Per-note working-tree status derived from blob oids (no content I/O).
+#[tauri::command]
+fn note_statuses(dir: String) -> Result<Vec<NoteStatusDto>, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let fs_blobs = flatten_blobs(&vault.fs_tree().map_err(|e| e.to_string())?);
+    let head_blobs = flatten_blobs(&vault.git.head_tree().map_err(|e| e.to_string())?);
+    let mut out: Vec<NoteStatusDto> = fs_blobs
+        .into_iter()
+        .filter(|(path, _)| path.ends_with(".md"))
+        .map(|(path, oid)| {
+            let status = match head_blobs.get(&path) {
+                None => "untracked",
+                Some(h) if h == &oid => "clean",
+                Some(_) => "modified",
+            };
+            NoteStatusDto { path, status: status.to_string() }
+        })
+        .collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
+/// Committed content of a note (HEAD), or `null` when it is untracked.
+#[tauri::command]
+fn note_base(dir: String, path: String) -> Result<Option<String>, String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let head = vault.git.head_tree().map_err(|e| e.to_string())?;
+    let Some(entry) = head.get(&path) else {
+        return Ok(None);
+    };
+    if entry.is_dir {
+        return Ok(None);
+    }
+    let data = vault.git.read_blob(&entry.oid).map_err(|e| e.to_string())?;
+    Ok(String::from_utf8(data).ok())
+}
+
+#[tauri::command]
+fn note_move(dir: String, from: String, to: String) -> Result<(), String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let src = vault.root.join(&from);
+    let dst = vault.root.join(&to);
+    if !src.starts_with(&vault.root) || !dst.starts_with(&vault.root) {
+        return Err("path escapes vault".into());
+    }
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&src, &dst).map_err(|e| e.to_string())?;
+    if let Some(parent) = src.parent() {
+        if parent != vault.root {
+            let _ = std::fs::remove_dir(parent);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn folder_create(dir: String, path: String) -> Result<(), String> {
+    let vault = Vault::open(&PathBuf::from(&dir)).map_err(|e| e.to_string())?;
+    let p = vault.root.join(&path);
+    if !p.starts_with(&vault.root) {
+        return Err("path escapes vault".into());
+    }
+    std::fs::create_dir_all(p).map_err(|e| e.to_string())
+}
+
 fn sync_dto(outcome: SyncOutcome) -> SyncDto {
     SyncDto {
         action: outcome.action,
@@ -371,6 +445,10 @@ pub fn run() {
             note_read,
             note_write,
             note_delete,
+            note_statuses,
+            note_base,
+            note_move,
+            folder_create,
             search_notes,
             save_image,
             read_file_bytes,

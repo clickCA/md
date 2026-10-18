@@ -276,9 +276,9 @@ impl GitBackend for GixBackend {
         }
         let prep = con
             .prepare_fetch(gix::progress::Discard, Default::default())
-            .context("prepare_fetch")?;
+            .map_err(|e| anyhow!("prepare_fetch failed: {e}"))?;
         prep.receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
-            .context("fetch receive")?;
+            .map_err(|e| anyhow!("fetch receive failed: {e}"))?;
         self.remote_main_oid()
     }
 
