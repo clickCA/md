@@ -94,8 +94,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
   const stageRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(IDENTITY);
   const viewRef = useRef(view);
-  viewRef.current = view;
-  const fitRef = useRef(1);
+  const [fit, setFit] = useState(1);
   const natRef = useRef<Nat | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -107,6 +106,11 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
   const gesture = useRef<Gesture>(idleGesture());
   const suppressClick = useRef(false);
 
+  // keep the latest view readable inside non-reactive handlers (post-commit)
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
+
   /* ── load the active image ─────────────────────────────────────────── */
 
   const src = current?.src ?? null;
@@ -117,7 +121,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     setFailed(false);
     natRef.current = null;
     setView(IDENTITY);
-    fitRef.current = 1;
+    setFit(1);
     if (!src) return;
     resolveImage(dir, src)
       .then((u) => {
@@ -146,8 +150,8 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
   );
 
   const zoomFit = useCallback(() => {
-    setView((v) => ({ scale: fitRef.current, x: 0, y: 0, rot: v.rot }));
-  }, []);
+    setView((v) => ({ scale: fit, x: 0, y: 0, rot: v.rot }));
+  }, [fit]);
 
   const zoomActual = useCallback(() => {
     setView((v) => ({ ...v, scale: 1, x: 0, y: 0 }));
@@ -157,27 +161,30 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     const stage = stageRef.current;
     const nat = natRef.current;
     const rot = ((viewRef.current.rot + 90) % 360) as View["rot"];
-    let fit = 1;
+    let next = 1;
     if (stage && nat) {
       const r = stage.getBoundingClientRect();
-      fit = fitFor(r.width, r.height, nat, rot);
+      next = fitFor(r.width, r.height, nat, rot);
     }
-    fitRef.current = fit;
-    setView({ scale: fit, x: 0, y: 0, rot });
+    setFit(next);
+    setView({ scale: next, x: 0, y: 0, rot });
   }, []);
 
-  const recomputeFit = useCallback((snap: boolean) => {
-    const stage = stageRef.current;
-    const nat = natRef.current;
-    if (!stage || !nat) return;
-    const r = stage.getBoundingClientRect();
-    const oldFit = fitRef.current;
-    const fit = fitFor(r.width, r.height, nat, viewRef.current.rot);
-    fitRef.current = fit;
-    if (snap || Math.abs(viewRef.current.scale - oldFit) < 1e-3) {
-      setView((v) => ({ scale: fit, x: 0, y: 0, rot: v.rot }));
-    }
-  }, []);
+  const recomputeFit = useCallback(
+    (snap: boolean) => {
+      const stage = stageRef.current;
+      const nat = natRef.current;
+      if (!stage || !nat) return;
+      const r = stage.getBoundingClientRect();
+      const oldFit = fit;
+      const next = fitFor(r.width, r.height, nat, viewRef.current.rot);
+      setFit(next);
+      if (snap || Math.abs(viewRef.current.scale - oldFit) < 1e-3) {
+        setView((v) => ({ scale: next, x: 0, y: 0, rot: v.rot }));
+      }
+    },
+    [fit],
+  );
 
   /* ── wheel zoom (non-passive so we can preventDefault) ─────────────── */
 
@@ -205,7 +212,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     if (stage) {
       const r = stage.getBoundingClientRect();
       const fit = fitFor(r.width, r.height, nat, 0);
-      fitRef.current = fit;
+      setFit(fit);
       setView({ scale: fit, x: 0, y: 0, rot: 0 });
     }
   };
@@ -437,7 +444,10 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
 
       <div
         ref={stageRef}
-        className={cn("relative min-h-0 flex-1 touch-none overflow-hidden", dragging ? "cursor-grabbing" : "cursor-default")}
+        className={cn(
+          "relative min-h-0 flex-1 touch-none overflow-hidden",
+          dragging ? "cursor-grabbing" : "cursor-default",
+        )}
         onClick={onStageClick}
         onDoubleClick={onStageDoubleClick}
         onPointerDown={onPointerDown}
@@ -458,7 +468,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
             )}
             style={{
               transform: `translate(-50%, -50%) translate(${view.x}px, ${view.y}px) rotate(${view.rot}deg) scale(${view.scale})`,
-              cursor: dragging ? "grabbing" : view.scale > fitRef.current + 1e-3 ? "grab" : "zoom-in",
+              cursor: dragging ? "grabbing" : view.scale > fit + 1e-3 ? "grab" : "zoom-in",
             }}
           />
         )}
@@ -492,7 +502,9 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
           <ToolButton label="Zoom out (-)" onClick={() => zoomBy(1 / ZOOM_STEP)}>
             <ZoomOut className="size-4" aria-hidden />
           </ToolButton>
-          <span className="w-14 text-center text-xs tabular-nums text-white/70">{Math.round(view.scale * 100)}%</span>
+          <span className="w-14 text-center text-xs tabular-nums text-white/70">
+            {Math.round(view.scale * 100)}%
+          </span>
           <ToolButton label="Zoom in (+)" onClick={() => zoomBy(ZOOM_STEP)}>
             <ZoomIn className="size-4" aria-hidden />
           </ToolButton>
@@ -509,7 +521,13 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
         {count > 1 && (
           <div className="flex gap-1.5 overflow-x-auto px-4 py-1">
             {images.map((im, i) => (
-              <Thumb key={im.src} dir={dir} image={im} active={i === safeIndex} onClick={() => onNavigate(i)} />
+              <Thumb
+                key={im.src}
+                dir={dir}
+                image={im}
+                active={i === safeIndex}
+                onClick={() => onNavigate(i)}
+              />
             ))}
           </div>
         )}
@@ -520,7 +538,15 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
 
 /* ── chrome bits ─────────────────────────────────────────────────────── */
 
-function ToolButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+function ToolButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -594,13 +620,17 @@ function Thumb({
       aria-current={active}
       className={cn(
         "h-14 w-20 shrink-0 overflow-hidden rounded border transition",
-        active ? "border-primary ring-1 ring-primary" : "border-white/15 opacity-60 hover:opacity-100",
+        active
+          ? "border-primary ring-1 ring-primary"
+          : "border-white/15 opacity-60 hover:opacity-100",
       )}
     >
       {url ? (
         <img src={url} alt="" draggable={false} className="h-full w-full object-cover" />
       ) : (
-        <span className="flex h-full w-full items-center justify-center bg-white/5 text-[10px] text-white/40">…</span>
+        <span className="flex h-full w-full items-center justify-center bg-white/5 text-[10px] text-white/40">
+          …
+        </span>
       )}
     </button>
   );

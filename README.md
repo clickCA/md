@@ -52,44 +52,22 @@ Full design + gitoxide evaluation log:
 
 ## Commands
 
-One entry point from the repo root — `make` orchestrates across ecosystems;
-each ecosystem keeps its native tooling (pnpm owns JS scripts, cargo owns
-Rust invocations, and neither duplicates the other):
-
-| Command             | Purpose                                   |
-| ------------------- | ----------------------------------------- |
-| `make setup`        | Install dependencies (pnpm + cargo fetch) |
-| `make dev`          | Run the desktop app (Tauri + Vite)        |
-| `make lint`         | ESLint + clippy (warnings are errors)     |
-| `make format-check` | Verify Prettier + rustfmt formatting      |
-| `make typecheck`    | TypeScript, no emit                       |
-| `make test`         | Vitest + cargo test over both workspaces  |
-| `make build`        | Frontend build + Rust workspace compile   |
-| `make check`        | Full verification suite (mirrors CI)      |
-| `make clean`        | Remove build artifacts                    |
-
-Granular targets: `lint-js` / `lint-rust`, `test-js` / `test-rust`,
-`format-js` / `format-rust` (plus `-check` variants), `build-js` / `build-rust`.
-Run `make` with no arguments to list them.
+```
+pnpm test:rust      # 11 tests: happy path, concurrent edits, delete-vs-edit,
+                    # offline-then-online, nested dirs, line-merge units,
+                    # SIGKILL convergence at every sync state
+pnpm test           # frontend suite (Vitest in Chromium)
+```
 
 ## Running the desktop app
 
 See [md-app/README.md](md-app/README.md). Quick start (from the repo root):
 
 ```
-make setup                                      # install everything
-make dev                                        # full desktop app, hot reload
-pnpm --filter md-app dev                        # frontend-only dev server
-```
-
-## Test suite
-
-```
-make test-rust      # 18 tests: happy path, concurrent edits, delete-vs-edit,
-                    # offline-then-online, nested dirs, line-merge units,
-                    # SIGKILL convergence at every sync state
-make test-js        # frontend suite (Vitest)
-make check          # every quality gate in one shot
+pnpm install && pnpm dev                        # frontend dev, hot reload
+pnpm --filter md-app tauri dev                  # full desktop app
+cargo build --release -p md-app                 # self-contained binary
+pnpm verify                                     # all quality gates in one shot
 ```
 
 Quality gates and layout are documented in
@@ -99,5 +77,5 @@ Quality gates and layout are documented in
 ## Toolchain
 
 - Rust 1.94 (pinned in `rust-toolchain.toml`)
-- pnpm 12 (frontend), Node ≥ 22, GNU make (developer entry point)
+- pnpm 12 (frontend), Node ≥ 22
 - Linux build deps: webkit2gtk-4.1, libgit2 ≥ 1.9 (mobile builds vendor libgit2 via cmake)

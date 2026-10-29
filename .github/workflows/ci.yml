@@ -25,27 +25,26 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # CI owns caching & environment setup; make owns the command definitions
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: make lint-js
+        run: pnpm --filter md-app lint
 
       - name: Format check
-        run: make format-check-js
+        run: pnpm --filter md-app format:check
 
       - name: Typecheck
-        run: make typecheck
+        run: pnpm --filter md-app typecheck
 
       - name: Install Playwright Chromium
         run: pnpm --filter md-app exec playwright install --with-deps chromium
 
       - name: Tests
-        run: make test-js
+        run: pnpm --filter md-app test:run
 
       - name: Build
-        run: make build-js
+        run: pnpm --filter md-app build
 
   rust:
     name: Rust (fmt · clippy · test)
@@ -76,10 +75,10 @@ jobs:
             file
 
       - name: Format check
-        run: make format-check-rust
+        run: cargo fmt --all -- --check
 
       - name: Clippy (warnings are errors)
-        run: make lint-rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Tests
-        run: make test-rust
+        run: cargo test --workspace

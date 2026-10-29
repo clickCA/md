@@ -19,7 +19,9 @@ const noop = () => {};
 
 describe("ImageViewer", () => {
   it("renders the active image with its label", async () => {
-    await render(<ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={noop} />);
+    await render(
+      <ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={noop} />,
+    );
     const dialog = page.getByRole("dialog", { name: "Image viewer" });
     await expect.element(dialog).toBeInTheDocument();
     await expect.element(page.getByText("first image")).toBeInTheDocument();
@@ -28,15 +30,11 @@ describe("ImageViewer", () => {
 
   it("hides gallery controls for a single image", async () => {
     await render(
-      <ImageViewer
-        dir="/v"
-        images={[IMAGES[0]]}
-        index={0}
-        onNavigate={noop}
-        onClose={noop}
-      />,
+      <ImageViewer dir="/v" images={[IMAGES[0]]} index={0} onNavigate={noop} onClose={noop} />,
     );
-    await expect.element(page.getByRole("button", { name: "Previous image" })).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Previous image" }))
+      .not.toBeInTheDocument();
     await expect.element(page.getByRole("button", { name: "Next image" })).not.toBeInTheDocument();
   });
 
@@ -61,13 +59,17 @@ describe("ImageViewer", () => {
 
   it("closes on Escape", async () => {
     const onClose = vi.fn();
-    await render(<ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={onClose} />);
+    await render(
+      <ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={onClose} />,
+    );
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(onClose).toHaveBeenCalled();
   });
 
   it("zoom controls update the percentage readout", async () => {
-    await render(<ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={noop} />);
+    await render(
+      <ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={noop} />,
+    );
     await expect.element(page.getByText("100%")).toBeInTheDocument();
     await page.getByRole("button", { name: "Zoom in (+)" }).click();
     await expect.element(page.getByText("125%")).toBeInTheDocument();
@@ -77,7 +79,9 @@ describe("ImageViewer", () => {
 
   it("copies the image path via the clipboard API", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
-    await render(<ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={noop} />);
+    await render(
+      <ImageViewer dir="/v" images={IMAGES} index={0} onNavigate={noop} onClose={noop} />,
+    );
     await page.getByRole("button", { name: "Copy image path" }).click();
     expect(writeText).toHaveBeenCalledWith(RED_DOT);
     writeText.mockRestore();
