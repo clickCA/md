@@ -122,13 +122,7 @@ function VaultImage({
     return <span className="text-muted-foreground">🖼 {alt || src}</span>;
   }
   return (
-    <img
-      src={url}
-      alt={alt}
-      title="click to open the image viewer"
-      onClick={() => onOpen(src)}
-      onMouseDown={(e) => e.stopPropagation()}
-    />
+    <img src={url} alt={alt} title="click to open the image viewer" onClick={() => onOpen(src)} onMouseDown={(e) => e.stopPropagation()} />
   );
 }
 
