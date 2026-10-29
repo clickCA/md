@@ -10,10 +10,7 @@
     "lint": "pnpm --filter md-app lint",
     "format": "pnpm --filter md-app format",
     "format:check": "pnpm --filter md-app format:check",
-    "typecheck": "pnpm --filter md-app typecheck",
-    "check:rust": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings",
-    "test:rust": "cargo test --workspace",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm check:rust && pnpm test:rust"
+    "typecheck": "pnpm --filter md-app typecheck"
   },
   "engines": {
     "node": ">=22"
