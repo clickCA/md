@@ -85,7 +85,7 @@ pnpm --filter md-app dev                        # frontend-only dev server
 ## Test suite
 
 ```
-make test-rust      # 11 tests: happy path, concurrent edits, delete-vs-edit,
+make test-rust      # 18 tests: happy path, concurrent edits, delete-vs-edit,
                     # offline-then-online, nested dirs, line-merge units,
                     # SIGKILL convergence at every sync state
 make test-js        # frontend suite (Vitest)
