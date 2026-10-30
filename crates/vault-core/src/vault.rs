@@ -127,7 +127,7 @@ impl Vault {
     /// tokenizer finds nothing: space-less scripts tokenize poorly, and
     /// correctness beats speed for the MVP.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
-        let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+        let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         if terms.is_empty() {
             return Ok(Vec::new());
         }
@@ -200,25 +200,7 @@ impl Vault {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            let mut matches = Vec::new();
-            for (i, line) in content.lines().enumerate() {
-                let lower = line.to_lowercase();
-                if terms.iter().all(|t| lower.contains(t)) {
-                    let trimmed = line.trim();
-                    let snippet = if trimmed.len() > 120 {
-                        format!("{}…", &trimmed[..120])
-                    } else {
-                        trimmed.to_string()
-                    };
-                    matches.push(SearchMatch {
-                        line: i + 1,
-                        snippet,
-                    });
-                    if matches.len() >= 5 {
-                        break;
-                    }
-                }
-            }
+            let matches = matching_lines(&content, terms);
             if !matches.is_empty() {
                 hits.push(SearchHit {
                     path: rel.clone(),

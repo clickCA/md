@@ -58,7 +58,7 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 | `note_base`     | `dir`, `path`              | `string?` — committed content at HEAD, `null` when untracked |
 | `note_move`     | `dir`, `from`, `to`        | `void` — rename, removes emptied parent folder   |
 | `folder_create` | `dir`, `path`              | `void`                                           |
-| `search_notes`  | `dir`, `query`             | `SearchHit[] = { path, matches: { line, snippet }[] }` (capped at 200 hits) |
+| `search_notes`  | `dir`, `query`             | `SearchHit[] = { path, matches: { line, snippet }[] }` (capped at 200 hits). Behavior: FTS5-indexed and bm25-ranked (see `docs/adr/2026-10-30-search-index.md`); the index is stat-verified before every query and rebuilt on any drift, so external edits are always reflected. Non-ASCII queries fall back to a line scan. |
 
 ## Files & images
 
