@@ -27,7 +27,9 @@ export function CommandPalette({ files, commands, onOpenFile, onClose }: Props) 
         kind: "file" as const,
         run: () => onOpenFile(f.path),
       })),
-    ...commands.filter((c) => c.label.toLowerCase().includes(q)).map((c) => ({ ...c, kind: "command" as const })),
+    ...commands
+      .filter((c) => c.label.toLowerCase().includes(q))
+      .map((c) => ({ ...c, kind: "command" as const })),
   ];
 
   const select = (i: number) => {
@@ -78,7 +80,9 @@ export function CommandPalette({ files, commands, onOpenFile, onClose }: Props) 
         </label>
         <ul role="listbox" aria-label="Results" className="max-h-80 overflow-y-auto p-1.5">
           {items.length === 0 && (
-            <li className="px-3 py-6 text-center text-sm text-muted-foreground">Nothing matches.</li>
+            <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+              Nothing matches.
+            </li>
           )}
           {items.map((item, i) => (
             <li key={item.id} role="option" aria-selected={i === index}>
@@ -98,7 +102,9 @@ export function CommandPalette({ files, commands, onOpenFile, onClose }: Props) 
                 )}
                 <span className="truncate">{item.label}</span>
                 {item.hint && (
-                  <span className="ml-auto truncate font-mono text-[11px] text-muted-foreground">{item.hint}</span>
+                  <span className="ml-auto truncate font-mono text-[11px] text-muted-foreground">
+                    {item.hint}
+                  </span>
                 )}
               </button>
             </li>

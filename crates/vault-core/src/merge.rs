@@ -43,8 +43,16 @@ fn hunks(base: &[u8], other: &[u8]) -> Vec<Hunk> {
 }
 
 fn overlaps(a: &Hunk, b: &Hunk) -> bool {
-    let a_hi = if a.base_end == a.base_start { a.base_start + 1 } else { a.base_end };
-    let b_hi = if b.base_end == b.base_start { b.base_start + 1 } else { b.base_end };
+    let a_hi = if a.base_end == a.base_start {
+        a.base_start + 1
+    } else {
+        a.base_end
+    };
+    let b_hi = if b.base_end == b.base_start {
+        b.base_start + 1
+    } else {
+        b.base_end
+    };
     a.base_start < b_hi && b.base_start < a_hi
 }
 
@@ -71,7 +79,11 @@ pub fn try_line_merge(base: &[u8], ours: &[u8], theirs: &[u8]) -> Option<Vec<u8>
     let oh = hunks(base, ours);
     let th = hunks(base, theirs);
     if oh.is_empty() || th.is_empty() {
-        return if oh.is_empty() { Some(theirs.to_vec()) } else { Some(ours.to_vec()) };
+        return if oh.is_empty() {
+            Some(theirs.to_vec())
+        } else {
+            Some(ours.to_vec())
+        };
     }
     let mut events: Vec<(usize, bool, usize)> = oh
         .iter()
@@ -141,9 +153,7 @@ pub fn try_line_merge(base: &[u8], ours: &[u8], theirs: &[u8]) -> Option<Vec<u8>
         };
         if group_ours.is_empty() {
             out.extend_from_slice(&t_text);
-        } else if group_theirs.is_empty() {
-            out.extend_from_slice(&o_text);
-        } else if o_text == t_text {
+        } else if group_theirs.is_empty() || o_text == t_text {
             out.extend_from_slice(&o_text);
         } else {
             return None;

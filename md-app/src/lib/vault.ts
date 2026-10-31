@@ -87,7 +87,12 @@ export function buildTree(files: VaultFile[], folders: string[] = []): TreeNode[
       const part = parts[i];
       let folder = level.find((n) => n.type === "folder" && n.name === part);
       if (!folder) {
-        folder = { type: "folder", name: part, path: parts.slice(0, i + 1).join("/"), children: [] };
+        folder = {
+          type: "folder",
+          name: part,
+          path: parts.slice(0, i + 1).join("/"),
+          children: [],
+        };
         level.push(folder);
       }
       level = (folder as Extract<TreeNode, { type: "folder" }>).children;
@@ -108,7 +113,9 @@ export function buildTree(files: VaultFile[], folders: string[] = []): TreeNode[
   }
   const sort = (nodes: TreeNode[]): TreeNode[] =>
     nodes
-      .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "folder" ? -1 : 1))
+      .sort((a, b) =>
+        a.type === b.type ? a.name.localeCompare(b.name) : a.type === "folder" ? -1 : 1,
+      )
       .map((n) => (n.type === "folder" ? { ...n, children: sort(n.children) } : n));
   return sort(root);
 }

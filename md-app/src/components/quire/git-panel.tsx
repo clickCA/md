@@ -23,6 +23,7 @@ export type GitPanelProps = {
   changes: VaultFile[];
   sync: "idle" | "pulling" | "pushing" | "syncing";
   lastRun: Journal | null;
+  lastSyncError: string | null;
   onOpen: (path: string) => void;
   onSync: () => void;
   onGitAction: (action: string) => void;
@@ -41,6 +42,7 @@ export function GitPanel({
   changes,
   sync,
   lastRun,
+  lastSyncError,
   onOpen,
   onSync,
   onGitAction,
@@ -60,8 +62,8 @@ export function GitPanel({
           <div className="flex flex-col gap-1">
             <h3 className="text-[13px] font-medium">Not a git repository</h3>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Initialize git in <span className="font-mono text-foreground">{name}/</span> to version your notes and
-              sync them across devices.
+              Initialize git in <span className="font-mono text-foreground">{name}/</span> to
+              version your notes and sync them across devices.
             </p>
           </div>
           <button
@@ -154,8 +156,20 @@ export function GitPanel({
         />
 
         <section className="mt-3 px-1.5">
+          {lastSyncError && (
+            <div
+              className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[11px] leading-snug text-destructive"
+              role="status"
+              title={lastSyncError}
+            >
+              background sync failed —{" "}
+              {lastSyncError.length > 90 ? `${lastSyncError.slice(0, 90)}…` : lastSyncError}
+            </div>
+          )}
           <div className="flex h-6 items-center justify-between px-2">
-            <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Recent sync</h3>
+            <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+              Recent sync
+            </h3>
             {lastRun && (
               <span
                 className={cn(
@@ -174,19 +188,27 @@ export function GitPanel({
           {lastRun && lastRun.events.length > 0 ? (
             <ol className="relative">
               {lastRun.events.map(([at, state], i) => (
-                <li key={`${i}-${state}-${at}`} className="relative flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-sidebar-accent">
+                <li
+                  key={`${i}-${state}-${at}`}
+                  className="relative flex gap-2.5 rounded-md px-2 py-1.5 hover:bg-sidebar-accent"
+                >
                   <span className="relative flex w-3 shrink-0 justify-center pt-1">
                     {i < lastRun.events.length - 1 && (
                       <span className="absolute top-3 -bottom-3 w-px bg-border" aria-hidden />
                     )}
                     <GitCommitHorizontal
-                      className={cn("relative size-3", i === lastRun.events.length - 1 ? "text-primary" : "text-muted-foreground")}
+                      className={cn(
+                        "relative size-3",
+                        i === lastRun.events.length - 1 ? "text-primary" : "text-muted-foreground",
+                      )}
                       aria-hidden
                     />
                   </span>
                   <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2">
                     <span className="truncate text-[13px] leading-5">{eventLabel(state)}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{relTime(at)}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {relTime(at)}
+                    </span>
                   </span>
                 </li>
               ))}
@@ -208,7 +230,9 @@ export function GitPanel({
             disabled={busy || !hasRemote}
             className={cn(
               "mt-3 flex h-7 w-full items-center justify-center gap-1.5 rounded-md text-[11px] disabled:opacity-40",
-              confirmForce ? "bg-destructive text-destructive-foreground" : "border border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+              confirmForce
+                ? "bg-destructive text-destructive-foreground"
+                : "border border-border text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
             title="overwrite the remote with local history"
           >
@@ -247,7 +271,10 @@ function ChangeGroup({
           {files.map((f) => {
             const status = statusOf(f);
             return (
-              <li key={f.path} className="group flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-sidebar-accent">
+              <li
+                key={f.path}
+                className="group flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-sidebar-accent"
+              >
                 <button
                   type="button"
                   onClick={() => onOpen(f.path)}
@@ -258,7 +285,12 @@ function ChangeGroup({
                     {f.path.includes("/") ? f.path.split("/").slice(0, -1).join("/") : ""}
                   </span>
                 </button>
-                <span className={cn("w-3 font-mono text-[10px]", status === "modified" ? "text-modified" : "text-added")}>
+                <span
+                  className={cn(
+                    "w-3 font-mono text-[10px]",
+                    status === "modified" ? "text-modified" : "text-added",
+                  )}
+                >
                   {status === "modified" ? "M" : "U"}
                 </span>
               </li>

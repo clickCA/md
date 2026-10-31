@@ -16,7 +16,10 @@ export function Inspector({ file, files, onOpen, onJump }: Props) {
   const words = file.content.trim().split(/\s+/).filter(Boolean).length;
 
   return (
-    <aside aria-label="Note details" className="hidden w-60 shrink-0 flex-col overflow-y-auto pt-8 lg:flex">
+    <aside
+      aria-label="Note details"
+      className="hidden w-60 shrink-0 flex-col overflow-y-auto pt-8 lg:flex"
+    >
       <PanelHeader title="Outline" />
       <ul className="px-1.5">
         {outline.map((h) => (
@@ -40,7 +43,9 @@ export function Inspector({ file, files, onOpen, onJump }: Props) {
       <div className="mt-4">
         <PanelHeader title={`Backlinks ${links.length}`} />
         {links.length === 0 ? (
-          <p className="px-3 text-xs leading-relaxed text-muted-foreground">No notes link here yet.</p>
+          <p className="px-3 text-xs leading-relaxed text-muted-foreground">
+            No notes link here yet.
+          </p>
         ) : (
           <ul className="px-1.5">
             {links.map((f) => {

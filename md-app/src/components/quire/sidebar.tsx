@@ -64,9 +64,19 @@ export function Sidebar({
   const footer = !isRepo
     ? { label: "Initialize git", action: () => onPanel("git") }
     : !hasRemote
-      ? { label: changeCount > 0 ? `${changeCount} uncommitted` : "Local only, no remote", action: () => onPanel("git") }
+      ? {
+          label: changeCount > 0 ? `${changeCount} uncommitted` : "Local only, no remote",
+          action: () => onPanel("git"),
+        }
       : {
-          label: sync === "pulling" ? "Pulling…" : sync === "pushing" ? "Pushing…" : changeCount > 0 ? `${changeCount} to sync` : `Synced ${lastSynced}`,
+          label:
+            sync === "pulling"
+              ? "Pulling…"
+              : sync === "pushing"
+                ? "Pushing…"
+                : changeCount > 0
+                  ? `${changeCount} to sync`
+                  : `Synced ${lastSynced}`,
           action: onSync,
         };
 
@@ -75,7 +85,10 @@ export function Sidebar({
       aria-label="Vault"
       className={cn("flex w-64 shrink-0 flex-col border-r border-border bg-sidebar", className)}
     >
-      <div data-tauri-drag-region className="flex h-11 shrink-0 items-center justify-between pr-2 pl-2 select-none">
+      <div
+        data-tauri-drag-region
+        className="flex h-11 shrink-0 items-center justify-between pr-2 pl-2 select-none"
+      >
         <button
           type="button"
           onClick={onOpenFolder}
@@ -90,8 +103,15 @@ export function Sidebar({
           <IconButton label="Open today's note" onClick={onDailyNote}>
             <Calendar className="size-4" aria-hidden />
           </IconButton>
-          <IconButton label={dark ? "Switch to light mode" : "Switch to dark mode"} onClick={onToggleTheme}>
-            {dark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
+          <IconButton
+            label={dark ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={onToggleTheme}
+          >
+            {dark ? (
+              <Sun className="size-4" aria-hidden />
+            ) : (
+              <Moon className="size-4" aria-hidden />
+            )}
           </IconButton>
           <IconButton label="Hide sidebar" onClick={onCollapse}>
             <PanelLeftClose className="size-4" aria-hidden />
@@ -109,7 +129,11 @@ export function Sidebar({
         <kbd className="ml-auto font-mono text-[11px] text-muted-foreground">Ctrl N</kbd>
       </button>
 
-      <div role="tablist" aria-label="Sidebar view" className="mx-3 mb-2 flex shrink-0 items-center gap-0.5 rounded-md bg-background/60 p-0.5">
+      <div
+        role="tablist"
+        aria-label="Sidebar view"
+        className="mx-3 mb-2 flex shrink-0 items-center gap-0.5 rounded-md bg-background/60 p-0.5"
+      >
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -125,7 +149,10 @@ export function Sidebar({
             <Icon className="size-3.5" aria-hidden />
             {label}
             {id === "git" && changeCount > 0 && (
-              <span className="size-1.5 rounded-full bg-modified" aria-label={`${changeCount} changes`} />
+              <span
+                className="size-1.5 rounded-full bg-modified"
+                aria-label={`${changeCount} changes`}
+              />
             )}
           </button>
         ))}
@@ -140,7 +167,10 @@ export function Sidebar({
         className="mx-3 mb-3 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:hover:bg-transparent"
       >
         {isRepo ? (
-          <RefreshCw className={cn("size-3.5 shrink-0", busy && "animate-spin text-primary")} aria-hidden />
+          <RefreshCw
+            className={cn("size-3.5 shrink-0", busy && "animate-spin text-primary")}
+            aria-hidden
+          />
         ) : (
           <GitBranch className="size-3.5 shrink-0 text-primary" aria-hidden />
         )}

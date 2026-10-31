@@ -170,7 +170,12 @@ export function Workspace({ vault, dark, onToggleTheme, onOpenFolder, onOpenSett
     { id: "open", label: "Open folder as vault…", run: onOpenFolder },
     { id: "settings", label: "Vault settings", run: onOpenSettings },
     { id: "mode", label: "Toggle markdown source", hint: "Ctrl E", run: toggleMode },
-    { id: "search", label: "Search in all notes", hint: "Ctrl Shift F", run: () => showPanel("search") },
+    {
+      id: "search",
+      label: "Search in all notes",
+      hint: "Ctrl Shift F",
+      run: () => showPanel("search"),
+    },
     { id: "sync", label: "Sync now", run: () => void syncNow() },
     { id: "pull", label: "Git: Pull (take remote)", run: () => void gitAction("take-remote") },
     { id: "push", label: "Git: Push", run: () => void gitAction("push") },
@@ -195,7 +200,9 @@ export function Workspace({ vault, dark, onToggleTheme, onOpenFolder, onOpenSett
     onOpenFolder,
     changeCount: changes.length,
     sync,
-    lastSynced: status?.lastRun ? relTime(status.lastRun.finishedAt ?? status.lastRun.startedAt) : "never",
+    lastSynced: status?.lastRun
+      ? relTime(status.lastRun.finishedAt ?? status.lastRun.startedAt)
+      : "never",
     dark,
     onToggleTheme,
     onPanel: setPanel,
@@ -232,6 +239,7 @@ export function Workspace({ vault, dark, onToggleTheme, onOpenFolder, onOpenSett
           changes={changes}
           sync={sync}
           lastRun={status?.lastRun ?? null}
+          lastSyncError={vault.lastSyncError}
           onOpen={openNote}
           onSync={() => void syncNow()}
           onGitAction={(a) => void gitAction(a)}
@@ -324,7 +332,13 @@ export function Workspace({ vault, dark, onToggleTheme, onOpenFolder, onOpenSett
   );
 }
 
-function EmptyState({ onCreate, onOpenFolder }: { onCreate: () => void; onOpenFolder: () => void }) {
+function EmptyState({
+  onCreate,
+  onOpenFolder,
+}: {
+  onCreate: () => void;
+  onOpenFolder: () => void;
+}) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
       <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">

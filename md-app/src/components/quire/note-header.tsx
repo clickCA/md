@@ -29,7 +29,10 @@ export function NoteHeader({
   const title = parts.pop();
 
   return (
-    <header data-tauri-drag-region className="flex h-11 shrink-0 items-center gap-2 px-2 select-none">
+    <header
+      data-tauri-drag-region
+      className="flex h-11 shrink-0 items-center gap-2 px-2 select-none"
+    >
       <span className={sidebarOpen ? "contents md:hidden" : "contents"}>
         <IconButton label="Show sidebar" onClick={onShowSidebar}>
           <PanelLeftOpen className="size-4" aria-hidden />
@@ -55,10 +58,18 @@ export function NoteHeader({
               pressed={mode === "source"}
               onClick={onToggleMode}
             >
-              {mode === "live" ? <Code2 className="size-4" aria-hidden /> : <PenLine className="size-4" aria-hidden />}
+              {mode === "live" ? (
+                <Code2 className="size-4" aria-hidden />
+              ) : (
+                <PenLine className="size-4" aria-hidden />
+              )}
             </IconButton>
             <span className="hidden lg:contents">
-              <IconButton label="Outline and backlinks" pressed={outlineOpen} onClick={onToggleOutline}>
+              <IconButton
+                label="Outline and backlinks"
+                pressed={outlineOpen}
+                onClick={onToggleOutline}
+              >
                 <ListTree className="size-4" aria-hidden />
               </IconButton>
             </span>

@@ -29,9 +29,15 @@ pub struct TreeEntry {
 pub type Tree = BTreeMap<String, TreeEntry>;
 
 pub trait GitBackend {
-    fn init(path: &Path) -> Result<Self> where Self: Sized;
-    fn init_bare(path: &Path) -> Result<Self> where Self: Sized;
-    fn open(path: &Path) -> Result<Self> where Self: Sized;
+    fn init(path: &Path) -> Result<Self>
+    where
+        Self: Sized;
+    fn init_bare(path: &Path) -> Result<Self>
+    where
+        Self: Sized;
+    fn open(path: &Path) -> Result<Self>
+    where
+        Self: Sized;
     fn set_remote(&mut self, url: &str) -> Result<()>;
     fn remote_url(&self) -> Result<Option<String>>;
     fn head_oid(&self) -> Result<Option<Oid>>;

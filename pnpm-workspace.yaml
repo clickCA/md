@@ -1,3 +1,8 @@
+packages:
+  - md-app
+
+# supply-chain guard: hold brand-new releases back; these pinned versions are
+# exempt because the project was scaffolded against them
 minimumReleaseAgeExclude:
   - '@vitest/browser-playwright@5.0.5'
   - '@vitest/browser@5.0.5'

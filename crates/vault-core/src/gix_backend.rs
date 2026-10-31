@@ -29,8 +29,7 @@ fn to_hex(oid: gix::ObjectId) -> Oid {
 }
 
 fn from_hex(oid: &Oid) -> Result<gix::ObjectId> {
-    gix::hash::ObjectId::from_hex(oid.as_bytes())
-        .map_err(|e| anyhow!("invalid oid {oid}: {e:?}"))
+    gix::hash::ObjectId::from_hex(oid.as_bytes()).map_err(|e| anyhow!("invalid oid {oid}: {e:?}"))
 }
 
 fn ref_target_oid(r: &gix::Reference<'_>) -> Option<gix::ObjectId> {
@@ -88,7 +87,12 @@ fn write_node(repo: &gix::Repository, map: &BTreeMap<String, Node>) -> Result<gi
 }
 
 impl GixBackend {
-    fn push_refspec(&self, expected_local: &Oid, creds: Option<&Credentials>, force: bool) -> Result<()> {
+    fn push_refspec(
+        &self,
+        expected_local: &Oid,
+        creds: Option<&Credentials>,
+        force: bool,
+    ) -> Result<()> {
         let workdir = self
             .repo
             .workdir()
@@ -101,9 +105,7 @@ impl GixBackend {
         let rejected_c = rejected.clone();
         cbs.push_update_reference(move |refname, status| {
             if let Some(msg) = status {
-                rejected_c
-                    .borrow_mut()
-                    .push(format!("{refname}: {msg}"));
+                rejected_c.borrow_mut().push(format!("{refname}: {msg}"));
             }
             Ok(())
         });
@@ -330,7 +332,10 @@ impl GitBackend for GixBackend {
             } else {
                 map.insert(
                     name,
-                    TreeEntry { oid: to_hex(entry.inner.oid.to_owned()), is_dir: false },
+                    TreeEntry {
+                        oid: to_hex(entry.inner.oid.to_owned()),
+                        is_dir: false,
+                    },
                 );
             }
         }
@@ -356,7 +361,7 @@ impl GitBackend for GixBackend {
             encoding: None,
             parents: parents
                 .iter()
-                .map(|p| from_hex(p))
+                .map(from_hex)
                 .collect::<Result<Vec<_>>>()?
                 .into(),
             extra_headers: Default::default(),

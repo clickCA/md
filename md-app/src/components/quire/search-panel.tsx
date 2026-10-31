@@ -80,7 +80,9 @@ export function SearchPanel({ onOpen, search }: Props) {
                       onClick={() => onOpen(hit.path)}
                       className="flex w-full gap-2 rounded-md px-2 py-0.5 text-left text-xs text-muted-foreground hover:bg-sidebar-accent"
                     >
-                      <span className="w-5 shrink-0 text-right font-mono text-[10px] leading-5">{line}</span>
+                      <span className="w-5 shrink-0 text-right font-mono text-[10px] leading-5">
+                        {line}
+                      </span>
                       <span className="truncate leading-5">
                         <Highlight text={snippet} query={q.toLowerCase()} />
                       </span>
@@ -102,7 +104,9 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, index)}
-      <mark className="rounded-sm bg-primary/25 text-foreground">{text.slice(index, index + query.length)}</mark>
+      <mark className="rounded-sm bg-primary/25 text-foreground">
+        {text.slice(index, index + query.length)}
+      </mark>
       {text.slice(index + query.length)}
     </>
   );

@@ -11,6 +11,8 @@ interface Props {
   onChooseFolder: () => void;
   onSave: () => void;
   busy: boolean;
+  autoSync: boolean;
+  onAutoSyncChange: (on: boolean) => void;
 }
 
 export default function VaultSettingsDialog({
@@ -22,6 +24,8 @@ export default function VaultSettingsDialog({
   onChooseFolder,
   onSave,
   busy,
+  autoSync,
+  onAutoSyncChange,
 }: Props) {
   return (
     <Modal open={open} onOpenChange={onOpenChange} className="top-1/4 w-96 max-w-[92vw]">
@@ -49,8 +53,24 @@ export default function VaultSettingsDialog({
         placeholder="https://github.com/you/notes.git"
         className="mb-4 w-full rounded-md border border-input bg-muted px-2 py-1.5 text-sm outline-none focus:border-primary/60"
       />
+      <label className="mb-4 flex cursor-pointer items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={autoSync}
+          onChange={(e) => onAutoSyncChange(e.target.checked)}
+          className="size-3.5 accent-[var(--primary)]"
+        />
+        <span>
+          auto-sync when a remote is set
+          <span className="ml-1 text-muted-foreground">
+            (a few seconds after edits, and on app focus)
+          </span>
+        </span>
+      </label>
       <div className="flex justify-end gap-2">
-        <Dialog.Close className="rounded-md px-2.5 py-1 text-xs hover:bg-accent">Cancel</Dialog.Close>
+        <Dialog.Close className="rounded-md px-2.5 py-1 text-xs hover:bg-accent">
+          Cancel
+        </Dialog.Close>
         <button
           onClick={onSave}
           disabled={busy}

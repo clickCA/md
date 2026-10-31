@@ -26,8 +26,8 @@ export default function CredentialsDialog({ open, onOpenChange, onSignIn }: Prop
         <KeyRound size={14} /> Sign in to sync
       </Dialog.Title>
       <p className="mb-3 text-xs text-muted-foreground">
-        The remote needs credentials. For GitHub, use your username and a fine-grained personal access token with
-        repository read/write access.
+        The remote needs credentials. For GitHub, use your username and a fine-grained personal
+        access token with repository read/write access.
       </p>
       <label className="mb-1 block text-xs text-muted-foreground">username</label>
       <input
@@ -45,7 +45,9 @@ export default function CredentialsDialog({ open, onOpenChange, onSignIn }: Prop
         className="mb-4 w-full rounded-md border border-input bg-muted px-2 py-1.5 text-sm outline-none focus:border-primary/60"
       />
       <div className="flex justify-end gap-2">
-        <Dialog.Close className="rounded-md px-2.5 py-1 text-xs hover:bg-accent">Cancel</Dialog.Close>
+        <Dialog.Close className="rounded-md px-2.5 py-1 text-xs hover:bg-accent">
+          Cancel
+        </Dialog.Close>
         <button
           onClick={submit}
           disabled={!user || !pass}

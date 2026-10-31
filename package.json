@@ -1,0 +1,18 @@
+{
+  "name": "md",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local-first Markdown vault with real Git sync (monorepo root)",
+  "scripts": {
+    "dev": "pnpm --filter md-app dev",
+    "build": "pnpm --filter md-app build",
+    "test": "pnpm --filter md-app test:run",
+    "lint": "pnpm --filter md-app lint",
+    "format": "pnpm --filter md-app format",
+    "format:check": "pnpm --filter md-app format:check",
+    "typecheck": "pnpm --filter md-app typecheck"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

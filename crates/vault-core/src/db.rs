@@ -52,6 +52,16 @@ impl Db {
                 size INTEGER NOT NULL,
                 mtime INTEGER NOT NULL,
                 oid TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS search_state (
+                path TEXT PRIMARY KEY,
+                mtime INTEGER NOT NULL,
+                size INTEGER NOT NULL
+            );
+            CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+                path UNINDEXED,
+                content,
+                tokenize = 'unicode61 remove_diacritics 2'
             );",
         )?;
         Ok(Self { conn })
@@ -151,6 +161,61 @@ impl Db {
             .conn
             .prepare("SELECT at, state FROM journal_events WHERE run_id = ?1 ORDER BY id")?;
         let rows = stmt.query_map([run], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Current search-index signature: every indexed path with the mtime and
+    /// size it was indexed at. Used to detect drift between the index and the
+    /// Markdown files on disk (the index is an optimization, never the source
+    /// of truth — a mismatch means "rebuild", not "trust the index").
+    pub fn search_signature(&self) -> Result<Vec<(String, i64, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, mtime, size FROM search_state ORDER BY path")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Replace the whole search index in one transaction.
+    /// Full rebuild on drift — simple, always converges, and cheap at vault
+    /// sizes where searching still feels instant (well under 10k notes).
+    pub fn search_rebuild(&self, docs: &[(String, String, i64, i64)]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM search_index", [])?;
+        tx.execute("DELETE FROM search_state", [])?;
+        {
+            let mut ins_state =
+                tx.prepare("INSERT INTO search_state (path, mtime, size) VALUES (?1, ?2, ?3)")?;
+            let mut ins_doc =
+                tx.prepare("INSERT INTO search_index (path, content) VALUES (?1, ?2)")?;
+            for (path, content, mtime, size) in docs {
+                ins_state.execute(rusqlite::params![path, mtime, size])?;
+                ins_doc.execute(rusqlite::params![path, content])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Ranked full-text query. Returns (path, snippet) in bm25 relevance
+    /// order. The snippet is plain text — the UI re-derives highlighted lines
+    /// from the file itself, so no markup crosses this boundary.
+    pub fn search_query(&self, fts_query: &str, limit: usize) -> Result<Vec<(String, String)>> {
+        let sql = format!(
+            "SELECT path, snippet(search_index, 1, '', '', '…', 18) \
+             FROM search_index WHERE search_index MATCH ?1 \
+             ORDER BY bm25(search_index) LIMIT {limit}"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([fts_query], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 }

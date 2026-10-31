@@ -1,6 +1,13 @@
 import { type DragEvent, type ReactNode, useState } from "react";
 import { ChevronRight, FilePlus, FolderOpen, FolderPlus } from "lucide-react";
-import { type GitStatus, type TreeNode, type VaultFile, buildTree, parentOf, statusOf } from "@/lib/vault";
+import {
+  type GitStatus,
+  type TreeNode,
+  type VaultFile,
+  buildTree,
+  parentOf,
+  statusOf,
+} from "@/lib/vault";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
 
@@ -107,7 +114,8 @@ export function FileTree({
         onDrop={(e) => dnd.onDrop("", e)}
         className={cn(
           "flex-1 overflow-y-auto rounded-md px-1.5 pb-4 transition-colors",
-          dropTarget === ROOT && "bg-primary/5 outline outline-1 -outline-offset-1 outline-primary/40",
+          dropTarget === ROOT &&
+            "bg-primary/5 outline outline-1 -outline-offset-1 outline-primary/40",
         )}
       >
         {tree.map((node) => (
@@ -142,7 +150,15 @@ export function FileTree({
   );
 }
 
-function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+function HeaderButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -195,7 +211,10 @@ function Node({ node, depth, active, collapsed, statuses, onToggle, onOpen, dnd 
         aria-selected={false}
         onDragOver={(e) => dnd.onDragOver(node.path, e)}
         onDrop={(e) => dnd.onDrop(node.path, e)}
-        className={cn("rounded-md", isTarget && "bg-primary/10 outline outline-1 -outline-offset-1 outline-primary/50")}
+        className={cn(
+          "rounded-md",
+          isTarget && "bg-primary/10 outline outline-1 -outline-offset-1 outline-primary/50",
+        )}
       >
         <button
           type="button"
@@ -208,7 +227,10 @@ function Node({ node, depth, active, collapsed, statuses, onToggle, onOpen, dnd 
           )}
         >
           <ChevronRight
-            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-90",
+            )}
             aria-hidden
           />
           <span className="truncate">{node.name}</span>

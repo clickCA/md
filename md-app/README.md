@@ -40,12 +40,13 @@ cargo build --release -p md-app   # from the repo root → target/release/md-app
 
 ## Tauri commands (src-tauri/src/lib.rs)
 
-| Command | Purpose |
-| ------- | ------- |
-| `vault_init(dir, remoteUrl)` | create vault + remote binding |
-| `vault_open(dir)` / `vault_status(dir)` | status DTO: head, remote, pending, conflicts, last journal run |
-| `vault_sync(dir)` | full sync cycle → action + conflicts |
-| `note_read / note_write / note_delete` | note CRUD |
+| Command                                 | Purpose                                                         |
+| --------------------------------------- | --------------------------------------------------------------- |
+| `vault_init(dir, remoteUrl)`            | create vault + remote binding                                   |
+| `vault_open(dir)` / `vault_status(dir)` | status DTO: head, remote, pending, conflicts, last journal run  |
+| `vault_sync(dir)`                       | full sync cycle → action + conflicts                            |
+| `note_read / note_write / note_delete`  | note CRUD                                                       |
+| `vault_path(dir, path)`                 | absolute path of a vault-relative file (reveal in file manager) |
 
 ## Mobile (next milestone)
 

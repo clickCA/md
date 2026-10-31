@@ -36,12 +36,19 @@ pub fn sync(vault: &Vault) -> Result<SyncOutcome> {
     sync_with(vault, None)
 }
 
-pub fn sync_with(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<SyncOutcome> {
+pub fn sync_with(
+    vault: &Vault,
+    creds: Option<&crate::git_backend::Credentials>,
+) -> Result<SyncOutcome> {
     let run = vault.db.begin_run()?;
     let result = sync_inner(vault, run, creds);
     match &result {
         Ok(outcome) => {
-            let o = if outcome.conflicts.is_empty() { "ok" } else { "conflicts" };
+            let o = if outcome.conflicts.is_empty() {
+                "ok"
+            } else {
+                "conflicts"
+            };
             let _ = vault.db.finish_run(run, o, &outcome.action);
         }
         Err(e) => {
@@ -51,7 +58,11 @@ pub fn sync_with(vault: &Vault, creds: Option<&crate::git_backend::Credentials>)
     result
 }
 
-fn sync_inner(vault: &Vault, run: i64, creds: Option<&crate::git_backend::Credentials>) -> Result<SyncOutcome> {
+fn sync_inner(
+    vault: &Vault,
+    run: i64,
+    creds: Option<&crate::git_backend::Credentials>,
+) -> Result<SyncOutcome> {
     vault.commit_pending("auto: pending changes")?;
     let local = vault.git.head_oid()?;
 
@@ -153,12 +164,17 @@ fn sync_inner(vault: &Vault, run: i64, creds: Option<&crate::git_backend::Creden
 
     vault.materialize(&merged)?;
     for c in &conflicts {
-        let _ = vault.db.record_conflict(&c.path, &c.conflict_copy, &c.winner);
+        let _ = vault
+            .db
+            .record_conflict(&c.path, &c.conflict_copy, &c.winner);
     }
 
     vault.db.event(run, "committing")?;
     let tree = tree_from_blobs(&merged);
-    let commit = vault.git.create_commit(&tree, &[local.clone(), remote.clone()], "merge origin/main")?;
+    let commit =
+        vault
+            .git
+            .create_commit(&tree, &[local.clone(), remote.clone()], "merge origin/main")?;
     vault.git.update_main(&commit)?;
     abort_point("committing");
 
@@ -171,7 +187,12 @@ fn sync_inner(vault: &Vault, run: i64, creds: Option<&crate::git_backend::Creden
     })
 }
 
-fn push(vault: &Vault, run: i64, oid: &str, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+fn push(
+    vault: &Vault,
+    run: i64,
+    oid: &str,
+    creds: Option<&crate::git_backend::Credentials>,
+) -> Result<()> {
     vault.db.event(run, "pushing")?;
     vault.git.push_main(&oid.to_string(), creds)?;
     abort_point("pushing");
@@ -179,7 +200,11 @@ fn push(vault: &Vault, run: i64, oid: &str, creds: Option<&crate::git_backend::C
 }
 
 fn fast_forward(vault: &Vault, remote: &str) -> Result<()> {
-    let tree = flatten_blobs(&vault.git.tree_of(&vault.git.commit_tree_of(&remote.to_string())?)?);
+    let tree = flatten_blobs(
+        &vault
+            .git
+            .tree_of(&vault.git.commit_tree_of(&remote.to_string())?)?,
+    );
     vault.materialize(&tree)?;
     vault.git.update_main(&remote.to_string())?;
     Ok(())
@@ -191,7 +216,10 @@ fn tree_from_blobs(blobs: &BTreeMap<String, String>) -> crate::git_backend::Tree
         .map(|(p, oid)| {
             (
                 p.clone(),
-                crate::git_backend::TreeEntry { oid: oid.clone(), is_dir: false },
+                crate::git_backend::TreeEntry {
+                    oid: oid.clone(),
+                    is_dir: false,
+                },
             )
         })
         .collect()
@@ -208,15 +236,24 @@ fn merge_path(
     conflicts: &mut Vec<ConflictRecord>,
 ) -> Result<Vec<(String, String)>> {
     if o == t {
-        return Ok(o.map(|oid| (path.to_string(), oid.clone())).into_iter().collect());
+        return Ok(o
+            .map(|oid| (path.to_string(), oid.clone()))
+            .into_iter()
+            .collect());
     }
     let ours_changed = o != b;
     let theirs_changed = t != b;
     if !ours_changed {
-        return Ok(t.map(|oid| (path.to_string(), oid.clone())).into_iter().collect());
+        return Ok(t
+            .map(|oid| (path.to_string(), oid.clone()))
+            .into_iter()
+            .collect());
     }
     if !theirs_changed {
-        return Ok(o.map(|oid| (path.to_string(), oid.clone())).into_iter().collect());
+        return Ok(o
+            .map(|oid| (path.to_string(), oid.clone()))
+            .into_iter()
+            .collect());
     }
 
     if let (Some(o_oid), Some(t_oid)) = (o, t) {
@@ -232,27 +269,23 @@ fn merge_path(
     let (winner_oid, loser_content, winner_label) = match (o, t) {
         (None, Some(t_oid)) => (
             t_oid.clone(),
-            b.map(|oid| vault.git.read_blob(oid)).transpose()?.unwrap_or_default(),
+            b.map(|oid| vault.git.read_blob(oid))
+                .transpose()?
+                .unwrap_or_default(),
             "theirs (ours deleted)",
         ),
         (Some(o_oid), None) => (
             o_oid.clone(),
-            b.map(|oid| vault.git.read_blob(oid)).transpose()?.unwrap_or_default(),
+            b.map(|oid| vault.git.read_blob(oid))
+                .transpose()?
+                .unwrap_or_default(),
             "ours (theirs deleted)",
         ),
         (Some(o_oid), Some(t_oid)) => {
             if ours_wins {
-                (
-                    o_oid.clone(),
-                    vault.git.read_blob(t_oid)?,
-                    "ours",
-                )
+                (o_oid.clone(), vault.git.read_blob(t_oid)?, "ours")
             } else {
-                (
-                    t_oid.clone(),
-                    vault.git.read_blob(o_oid)?,
-                    "theirs",
-                )
+                (t_oid.clone(), vault.git.read_blob(o_oid)?, "theirs")
             }
         }
         (None, None) => unreachable!("both unchanged cannot reach here"),
@@ -278,7 +311,6 @@ fn conflict_copy_name(path: &str) -> String {
         None => format!("{path}.conflict-{ts}.md"),
     }
 }
-
 
 /// Commit pending changes and push (fails if the remote has moved).
 pub fn push_now(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {

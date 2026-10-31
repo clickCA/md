@@ -26,7 +26,11 @@ fn note(v: &Vault, path: &str) -> String {
 }
 
 fn conflicts(v: &Vault) -> Vec<String> {
-    v.db.conflicts().expect("conflicts").into_iter().map(|c| c.path).collect()
+    v.db.conflicts()
+        .expect("conflicts")
+        .into_iter()
+        .map(|c| c.path)
+        .collect()
 }
 
 #[test]
@@ -60,17 +64,24 @@ fn happy_path_alternating_edits() {
 fn concurrent_nonoverlapping_edits_merge_cleanly() {
     let e = setup();
 
-    e.a.write_note("doc.md", "one\ntwo\nthree\nfour\nfive\n").unwrap();
+    e.a.write_note("doc.md", "one\ntwo\nthree\nfour\nfive\n")
+        .unwrap();
     sync::sync(&e.a).expect("a push");
     sync::sync(&e.b).expect("b pull");
 
-    e.a.write_note("doc.md", "ONE\ntwo\nthree\nfour\nfive\n").unwrap();
+    e.a.write_note("doc.md", "ONE\ntwo\nthree\nfour\nfive\n")
+        .unwrap();
     sync::sync(&e.a).expect("a pushes first");
 
-    e.b.write_note("doc.md", "one\ntwo\nthree\nfour\nFIVE\n").unwrap();
+    e.b.write_note("doc.md", "one\ntwo\nthree\nfour\nFIVE\n")
+        .unwrap();
     let out = sync::sync(&e.b).expect("b merges");
     assert_eq!(out.action, "merge");
-    assert!(out.conflicts.is_empty(), "no conflicts expected: {:?}", out.conflicts);
+    assert!(
+        out.conflicts.is_empty(),
+        "no conflicts expected: {:?}",
+        out.conflicts
+    );
     assert_eq!(note(&e.b, "doc.md"), "ONE\ntwo\nthree\nfour\nFIVE\n");
 
     sync::sync(&e.a).expect("a fast-forwards");
@@ -112,9 +123,10 @@ fn concurrent_overlapping_edits_produce_conflict_copy() {
     );
 
     sync::sync(&e.a).expect("a catches up");
-    assert!(fs::read_dir(&e.a.root)
-        .unwrap()
-        .any(|d| d.ok().map(|e| e.file_name().to_string_lossy().starts_with("doc.conflict-")).unwrap_or(false)));
+    assert!(fs::read_dir(&e.a.root).unwrap().any(|d| d
+        .ok()
+        .map(|e| e.file_name().to_string_lossy().starts_with("doc.conflict-"))
+        .unwrap_or(false)));
     assert!(!conflicts(&e.b).is_empty(), "conflict recorded in db");
 }
 
@@ -185,7 +197,8 @@ fn nested_paths_and_subdirectories_sync() {
     sync::sync(&e.b).expect("b pull");
     assert_eq!(note(&e.b, "journal/2026/okt.md"), "# Okt\n");
 
-    e.b.write_note("journal/2026/okt.md", "# Oktober\n").unwrap();
+    e.b.write_note("journal/2026/okt.md", "# Oktober\n")
+        .unwrap();
     sync::sync(&e.b).expect("b push");
     sync::sync(&e.a).expect("a pull");
     assert_eq!(note(&e.a, "journal/2026/okt.md"), "# Oktober\n");
@@ -195,10 +208,10 @@ fn nested_paths_and_subdirectories_sync() {
 fn respects_gitignore_when_committing() {
     let e = setup();
 
-    e.a.write_note(".gitignore", "node_modules/\n*.log\n").unwrap();
+    e.a.write_note(".gitignore", "node_modules/\n*.log\n")
+        .unwrap();
     e.a.write_note("note.md", "real content\n").unwrap();
-    e.a
-        .write_note("node_modules/junk.js", "huge dependency\n")
+    e.a.write_note("node_modules/junk.js", "huge dependency\n")
         .unwrap();
     e.a.write_note("debug.log", "noise\n").unwrap();
 
@@ -222,7 +235,8 @@ fn respects_gitignore_when_committing() {
 fn search_finds_terms_across_notes() {
     let e = setup();
 
-    e.a.write_note("a.md", "the quick brown fox\nsecond line\n").unwrap();
+    e.a.write_note("a.md", "the quick brown fox\nsecond line\n")
+        .unwrap();
     e.a.write_note("dir/b.md", "brown bears sleep\n").unwrap();
     e.a.write_note("dir/c.md", "nothing relevant\n").unwrap();
 
@@ -247,8 +261,7 @@ fn line_merge_unit_cases() {
     let identical = try_line_merge(b"a\nb\n", b"a\nX\n", b"a\nX\n").unwrap();
     assert_eq!(identical, b"a\nX\n");
 
-    let disjoint_inserts =
-        try_line_merge(b"a\nc\n", b"a\nb\nc\n", b"a\nc\nd\n").unwrap();
+    let disjoint_inserts = try_line_merge(b"a\nc\n", b"a\nb\nc\n", b"a\nc\nd\n").unwrap();
     assert_eq!(disjoint_inserts, b"a\nb\nc\nd\n");
 
     assert!(try_line_merge(b"a\nb\n", b"X\nb\n", b"Y\nb\n").is_none());

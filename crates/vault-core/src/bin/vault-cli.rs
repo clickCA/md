@@ -52,7 +52,14 @@ fn main() -> Result<()> {
             let note = rest.get(1).cloned().unwrap_or_else(|| usage());
             let content = rest.get(2).cloned().unwrap_or_else(|| usage());
             let existing = std::fs::read_to_string(v.root.join(&note)).unwrap_or_default();
-            v.write_note(&note, &format!("{existing}{}{}", if existing.is_empty() { "" } else { "\n" }, content))?;
+            v.write_note(
+                &note,
+                &format!(
+                    "{existing}{}{}",
+                    if existing.is_empty() { "" } else { "\n" },
+                    content
+                ),
+            )?;
             println!("appended to {note}");
         }
         "rm" => {
@@ -66,7 +73,10 @@ fn main() -> Result<()> {
             let outcome = sync::sync(&v)?;
             println!("{}", serde_outcome(&outcome));
             for c in &outcome.conflicts {
-                println!("CONFLICT {} -> {} (winner: {})", c.path, c.conflict_copy, c.winner);
+                println!(
+                    "CONFLICT {} -> {} (winner: {})",
+                    c.path, c.conflict_copy, c.winner
+                );
             }
         }
         "status" => {
@@ -75,7 +85,11 @@ fn main() -> Result<()> {
             let pending = {
                 let fs_blobs = vault_core::merge::flatten_blobs(&v.fs_tree()?);
                 let head_blobs = vault_core::merge::flatten_blobs(&v.git.head_tree()?);
-                if fs_blobs == head_blobs { "clean" } else { "pending changes" }
+                if fs_blobs == head_blobs {
+                    "clean"
+                } else {
+                    "pending changes"
+                }
             };
             println!("head: {}", head.as_deref().unwrap_or("(none)"));
             println!("worktree: {pending}");

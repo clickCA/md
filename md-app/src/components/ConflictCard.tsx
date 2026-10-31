@@ -33,8 +33,8 @@ export default function ConflictCard({ dir, conflicts, busy, onResolved }: Props
     <div className="border-b border-border bg-destructive/5 px-4 py-3">
       <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-destructive">
         <AlertTriangle size={13} />
-        {conflicts.length} conflict{conflicts.length > 1 ? "s" : ""} — the sync kept the last writer's version; the
-        other copy was preserved
+        {conflicts.length} conflict{conflicts.length > 1 ? "s" : ""} — the sync kept the last
+        writer's version; the other copy was preserved
       </div>
       <ul className="space-y-2">
         {conflicts.map((c) => (

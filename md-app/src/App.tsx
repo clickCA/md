@@ -61,7 +61,9 @@ export default function App() {
 
   return (
     <div className="flex h-dvh flex-col">
-      {error && <div className="bg-destructive/10 px-4 py-1.5 text-xs text-destructive">{error}</div>}
+      {error && (
+        <div className="bg-destructive/10 px-4 py-1.5 text-xs text-destructive">{error}</div>
+      )}
 
       {status && status.conflicts.length > 0 && (
         <ConflictCard
@@ -97,6 +99,8 @@ export default function App() {
           setSettingsOpen(false);
         }}
         busy={busy}
+        autoSync={vault.autoSync}
+        onAutoSyncChange={vault.setAutoSync}
       />
 
       <VaultSetupDialog

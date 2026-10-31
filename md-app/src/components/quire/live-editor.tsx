@@ -5,6 +5,7 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -12,7 +13,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
 import hljs from "highlight.js/lib/common";
-import { invoke } from "@tauri-apps/api/core";
+import { extractImages, resolveImage } from "@/lib/images";
 import {
   type Block,
   type BlockKind,
@@ -27,9 +28,10 @@ import {
 } from "@/lib/blocks";
 import { type LineChange, type VaultFile, lineChanges } from "@/lib/vault";
 import { cn } from "@/lib/utils";
+import { ImageViewer } from "./image-viewer";
 
 type Caret = number | "end";
-type Active = { start: number; count: number; caret: Caret; nonce: number };
+type Active = { start: number; count: number; caret: Caret; nonce: number; sel?: boolean };
 
 type Props = {
   dir: string;
@@ -42,10 +44,14 @@ type Props = {
 };
 
 const toLinks = (md: string) =>
-  md.replace(/\[\[([^\]]+)\]\]/g, (_, title: string) => `[${title}](wiki:${encodeURIComponent(title)})`);
+  md.replace(
+    /\[\[([^\]]+)\]\]/g,
+    (_, title: string) => `[${title}](wiki:${encodeURIComponent(title)})`,
+  );
 
 function spacing(kind: BlockKind, level: number) {
-  if (kind === "heading") return level === 1 ? "pt-2 pb-3" : level === 2 ? "pt-6 pb-1" : "pt-4 pb-1";
+  if (kind === "heading")
+    return level === 1 ? "pt-2 pb-3" : level === 2 ? "pt-6 pb-1" : "pt-4 pb-1";
   if (kind === "list") return "py-0.5";
   return "py-2";
 }
@@ -84,17 +90,6 @@ function ChangeMark({ change }: { change: LineChange }) {
 
 /* ── images ─────────────────────────────────────────────────────────── */
 
-const imgCache = new Map<string, string>();
-
-function mimeOf(src: string): string {
-  if (src.endsWith(".png")) return "image/png";
-  if (src.endsWith(".jpg") || src.endsWith(".jpeg")) return "image/jpeg";
-  if (src.endsWith(".gif")) return "image/gif";
-  if (src.endsWith(".svg")) return "image/svg+xml";
-  if (src.endsWith(".webp")) return "image/webp";
-  return "application/octet-stream";
-}
-
 function VaultImage({
   dir,
   src,
@@ -104,34 +99,36 @@ function VaultImage({
   dir: string;
   src: string;
   alt: string;
-  onOpen: (url: string) => void;
+  onOpen: (src: string) => void;
 }) {
-  const key = `${dir}|${src}`;
-  const [url, setUrl] = useState<string | null>(imgCache.get(key) ?? null);
+  const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (/^(https?:|data:)/.test(src)) {
-      setUrl(src);
-      return;
-    }
-    if (imgCache.has(key)) {
-      setUrl(imgCache.get(key)!);
-      return;
-    }
-    invoke<string>("read_file_bytes", { dir, path: src })
-      .then((b64) => {
-        const u = `data:${mimeOf(src)};base64,${b64}`;
-        imgCache.set(key, u);
-        setUrl(u);
+    let cancelled = false;
+    setUrl(null);
+    resolveImage(dir, src)
+      .then((u) => {
+        if (!cancelled) setUrl(u);
       })
-      .catch(() => setUrl(null));
-  }, [key, src]);
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dir, src]);
 
   if (!url) {
     return <span className="text-muted-foreground">🖼 {alt || src}</span>;
   }
   return (
-    <img src={url} alt={alt} title="click to enlarge" onClick={() => onOpen(url)} onMouseDown={(e) => e.stopPropagation()} />
+    <img
+      src={url}
+      alt={alt}
+      title="click to open the image viewer"
+      onClick={() => onOpen(src)}
+      onMouseDown={(e) => e.stopPropagation()}
+    />
   );
 }
 
@@ -210,14 +207,20 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
   ref,
 ) {
   const [active, setActive] = useState<Active | null>(null);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const nonce = useRef(0);
   const lines = file.content.split("\n");
   const changes = lineChanges(file);
+  const gallery = useMemo(() => extractImages(file.content), [file.content]);
+
+  const openViewer = (src: string) => {
+    const i = gallery.findIndex((g) => g.src === src);
+    setViewerIndex(i >= 0 ? i : 0);
+  };
 
   const commit = (next: string[]) => onChange(next.join("\n"));
-  const activate = (start: number, count: number, caret: Caret) =>
-    setActive({ start, count, caret, nonce: ++nonce.current });
+  const activate = (start: number, count: number, caret: Caret, sel?: boolean) =>
+    setActive({ start, count, caret, nonce: ++nonce.current, sel });
   const activateLine = (source: string[], line: number, caret: Caret) => {
     const b = blockAt(source, line);
     activate(b.start, b.end - b.start, caret);
@@ -245,7 +248,11 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
     if (!cur) return;
     const count = value.split("\n").length;
     setActive((a) => (a ? { ...a, count } : a));
-    commit([...lines.slice(0, cur.start), ...value.split("\n"), ...lines.slice(cur.start + cur.count)]);
+    commit([
+      ...lines.slice(0, cur.start),
+      ...value.split("\n"),
+      ...lines.slice(cur.start + cur.count),
+    ]);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -263,13 +270,28 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
       return;
     }
 
+    // Ctrl+A selects the active block (browser default); pressing it again
+    // with the block fully selected expands to the whole note. Without this,
+    // selection is stuck inside the single-block textarea.
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      const wholeBlock = s === 0 && t === value.length;
+      const wholeNote = cur.start === 0 && cur.count === lines.length;
+      if (wholeBlock && !wholeNote) {
+        e.preventDefault();
+        activate(0, lines.length, 0, true);
+      }
+      return;
+    }
+
     if (e.key === "Tab") {
       e.preventDefault();
       if (kind === "list" && cur.count === 1) {
         const next = e.shiftKey ? value.replace(/^ {1,2}/, "") : `  ${value}`;
         const delta = next.length - value.length;
         commit(replace(next));
-        requestAnimationFrame(() => el.setSelectionRange(Math.max(0, s + delta), Math.max(0, t + delta)));
+        requestAnimationFrame(() =>
+          el.setSelectionRange(Math.max(0, s + delta), Math.max(0, t + delta)),
+        );
       } else if (!e.shiftKey) {
         commit(replace(`${value.slice(0, s)}  ${value.slice(t)}`));
         requestAnimationFrame(() => el.setSelectionRange(s + 2, s + 2));
@@ -295,7 +317,12 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
       return;
     }
 
-    if (e.key === "Enter" && !e.shiftKey && s === t && (kind === "list" || kind === "heading" || kind === "paragraph")) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      s === t &&
+      (kind === "list" || kind === "heading" || kind === "paragraph")
+    ) {
       const head = value.slice(0, s);
       const tail = value.slice(s);
       const lineStart = head.lastIndexOf("\n") + 1;
@@ -320,7 +347,11 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
 
       e.preventDefault();
       commit(replace(head + sep + prefix + tail));
-      activate(cur.start + (head + sep).split("\n").length - 1, (prefix + tail).split("\n").length, prefix.length);
+      activate(
+        cur.start + (head + sep).split("\n").length - 1,
+        (prefix + tail).split("\n").length,
+        prefix.length,
+      );
       return;
     }
 
@@ -332,7 +363,8 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
       const next = [...lines.slice(0, prevIdx), prevLine + first, ...rest, ...post];
       commit(next);
       const b = blockAt(next, prevIdx);
-      const caret = next.slice(b.start, prevIdx).reduce((n, l) => n + l.length + 1, 0) + prevLine.length;
+      const caret =
+        next.slice(b.start, prevIdx).reduce((n, l) => n + l.length + 1, 0) + prevLine.length;
       activate(b.start, b.end - b.start, caret);
     }
   };
@@ -348,7 +380,7 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
       onActivate={() => activate(b.start, b.end - b.start, "end")}
       onToggleTask={() => commit(toggleTask(lines, b.start))}
       onOpenLink={onOpenLink}
-      onImage={setLightbox}
+      onImage={openViewer}
       existing={existing}
     />
   );
@@ -363,13 +395,17 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
 
   return (
     <div className="h-full overflow-y-auto">
-      <article aria-label="Note" className="prose-note mx-auto flex min-h-full max-w-2xl flex-col px-5 py-8 sm:px-8 sm:py-10">
+      <article
+        aria-label="Note"
+        className="prose-note mx-auto flex min-h-full max-w-2xl flex-col px-5 py-8 sm:px-8 sm:py-10"
+      >
         {before.map(renderBlock)}
         {cur && (
           <ActiveBlock
             key={`active-${cur.nonce}`}
             value={activeValue}
             caret={cur.caret}
+            sel={cur.sel}
             change={changeIn(changes, cur.start, cur.start + cur.count)}
             onChange={onActiveChange}
             onKeyDown={onKeyDown}
@@ -391,13 +427,14 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
         </div>
       </article>
 
-      {lightbox && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8"
-          onClick={() => setLightbox(null)}
-        >
-          <img src={lightbox} alt="" className="max-h-full max-w-full rounded-lg shadow-2xl" />
-        </div>
+      {viewerIndex !== null && gallery.length > 0 && (
+        <ImageViewer
+          dir={dir}
+          images={gallery}
+          index={viewerIndex}
+          onNavigate={setViewerIndex}
+          onClose={() => setViewerIndex(null)}
+        />
       )}
     </div>
   );
@@ -406,6 +443,7 @@ export const LiveEditor = forwardRef<EditorHandle, Props>(function LiveEditor(
 type ActiveProps = {
   value: string;
   caret: Caret;
+  sel?: boolean;
   change: LineChange;
   onChange: (value: string) => void;
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -413,7 +451,16 @@ type ActiveProps = {
   onCursor: (el: HTMLTextAreaElement) => void;
 };
 
-function ActiveBlock({ value, caret, change, onChange, onKeyDown, onBlur, onCursor }: ActiveProps) {
+function ActiveBlock({
+  value,
+  caret,
+  sel,
+  change,
+  onChange,
+  onKeyDown,
+  onBlur,
+  onCursor,
+}: ActiveProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const first = value.split("\n")[0] ?? "";
   const kind = kindOf(first);
@@ -423,8 +470,11 @@ function ActiveBlock({ value, caret, change, onChange, onKeyDown, onBlur, onCurs
     const el = ref.current;
     if (!el) return;
     el.focus();
-    const pos = caret === "end" ? el.value.length : Math.min(caret, el.value.length);
-    el.setSelectionRange(pos, pos);
+    if (sel) el.setSelectionRange(0, el.value.length);
+    else {
+      const pos = caret === "end" ? el.value.length : Math.min(caret, el.value.length);
+      el.setSelectionRange(pos, pos);
+    }
     onCursor(el);
     // Only on mount: each activation remounts this component with a fresh caret.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -474,7 +524,7 @@ type RenderedProps = {
   onActivate: () => void;
   onToggleTask: () => void;
   onOpenLink: (title: string) => void;
-  onImage: (url: string) => void;
+  onImage: (src: string) => void;
   existing: Set<string>;
 };
 
@@ -495,7 +545,10 @@ function RenderedBlock({
 
   return (
     <div
-      className={cn("live-block relative -mx-3 cursor-text rounded-md px-3", spacing(block.kind, level))}
+      className={cn(
+        "live-block relative -mx-3 cursor-text rounded-md px-3",
+        spacing(block.kind, level),
+      )}
       style={indent ? { paddingLeft: `calc(0.75rem + ${indent * 0.625}rem)` } : undefined}
       onMouseDown={(e) => {
         if (e.button !== 0) return;
@@ -535,7 +588,7 @@ function MarkdownBlock({
   indent: number;
   onToggleTask: () => void;
   onOpenLink: (title: string) => void;
-  onImage: (url: string) => void;
+  onImage: (src: string) => void;
   existing: Set<string>;
 }) {
   const body = indent
@@ -551,7 +604,12 @@ function MarkdownBlock({
       urlTransform={(url) => url}
       components={{
         img: ({ src, alt }) => (
-          <VaultImage dir={dir} src={typeof src === "string" ? src : ""} alt={alt ?? ""} onOpen={onImage} />
+          <VaultImage
+            dir={dir}
+            src={typeof src === "string" ? src : ""}
+            alt={alt ?? ""}
+            onOpen={onImage}
+          />
         ),
         input: ({ type, checked }) =>
           type === "checkbox" ? (
@@ -585,7 +643,12 @@ function MarkdownBlock({
             );
           }
           return (
-            <a href={href} target="_blank" rel="noreferrer" onMouseDown={(e) => e.stopPropagation()}>
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
               {children}
             </a>
           );

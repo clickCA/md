@@ -29,8 +29,13 @@ Files + SQLite index per vault · standard Git remote · single main branch
   `note.conflict-<ts>.md` and synced; edit beats delete (deleted version preserved)
 - **Recovery**: every sync is journaled and idempotent — re-running after a kill
   at any state transition converges, and the remote ref only moves forward
-- **Sync promise**: immediate sync when the app is active; opportunistic on
-  mobile background windows (never guaranteed by the OS)
+- **Sync promise**: immediate sync when the app is active — auto-sync fires
+  ~5 s after edits and on app focus (toggle in vault settings); opportunistic
+  on mobile background windows (never guaranteed by the OS)
+- **Search**: FTS5 index in the per-vault SQLite, stat-verified before every
+  query and rebuilt on drift (external edits are always visible); non-ASCII
+  queries (Thai, CJK, …) fall back to a line scan — see
+  [docs/adr/2026-10-30-search-index.md](docs/adr/2026-10-30-search-index.md)
 
 ## Status
 
@@ -45,25 +50,54 @@ Files + SQLite index per vault · standard Git remote · single main branch
 Full design + gitoxide evaluation log:
 [docs/adr/2026-10-12-git.md](docs/adr/2026-10-12-git.md)
 
-## Test suite
+## Commands
 
-```
-cargo test          # 9 tests: happy path, concurrent edits, delete-vs-edit,
-                    # offline-then-online, nested dirs, line-merge units,
-                    # SIGKILL convergence at every sync state
-```
+One entry point from the repo root — `make` orchestrates across ecosystems;
+each ecosystem keeps its native tooling (pnpm owns JS scripts, cargo owns
+Rust invocations, and neither duplicates the other):
+
+| Command             | Purpose                                   |
+| ------------------- | ----------------------------------------- |
+| `make setup`        | Install dependencies (pnpm + cargo fetch) |
+| `make dev`          | Run the desktop app (Tauri + Vite)        |
+| `make lint`         | ESLint + clippy (warnings are errors)     |
+| `make format-check` | Verify Prettier + rustfmt formatting      |
+| `make typecheck`    | TypeScript, no emit                       |
+| `make test`         | Vitest + cargo test over both workspaces  |
+| `make build`        | Frontend build + Rust workspace compile   |
+| `make check`        | Full verification suite (mirrors CI)      |
+| `make clean`        | Remove build artifacts                    |
+
+Granular targets: `lint-js` / `lint-rust`, `test-js` / `test-rust`,
+`format-js` / `format-rust` (plus `-check` variants), `build-js` / `build-rust`.
+Run `make` with no arguments to list them.
 
 ## Running the desktop app
 
-See [md-app/README.md](md-app/README.md). Quick start:
+See [md-app/README.md](md-app/README.md). Quick start (from the repo root):
 
 ```
-cd md-app && pnpm install && pnpm tauri dev    # dev, hot reload
-cargo build --release -p md-app                # self-contained binary
+make setup                                      # install everything
+make dev                                        # full desktop app, hot reload
+pnpm --filter md-app dev                        # frontend-only dev server
 ```
+
+## Test suite
+
+```
+make test-rust      # 18 tests: happy path, concurrent edits, delete-vs-edit,
+                    # offline-then-online, nested dirs, line-merge units,
+                    # SIGKILL convergence at every sync state
+make test-js        # frontend suite (Vitest)
+make check          # every quality gate in one shot
+```
+
+Quality gates and layout are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); the UI ⇄ Rust command contract is
+[docs/api.md](docs/api.md).
 
 ## Toolchain
 
 - Rust 1.94 (pinned in `rust-toolchain.toml`)
-- pnpm 12 (frontend), Node ≥ 20
+- pnpm 12 (frontend), Node ≥ 22, GNU make (developer entry point)
 - Linux build deps: webkit2gtk-4.1, libgit2 ≥ 1.9 (mobile builds vendor libgit2 via cmake)

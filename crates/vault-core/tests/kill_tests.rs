@@ -10,10 +10,7 @@ fn run(args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(
-        out.status.success(),
-        "command {args:?} failed: {text}"
-    );
+    assert!(out.status.success(), "command {args:?} failed: {text}");
     text
 }
 
@@ -32,7 +29,12 @@ fn run_aborting(args: &[&str], state: &str) {
 
 fn remote_main_oid(remote: &Path) -> String {
     let out = Command::new("git")
-        .args(["--git-dir", &remote.to_string_lossy(), "rev-parse", "refs/heads/main"])
+        .args([
+            "--git-dir",
+            &remote.to_string_lossy(),
+            "rev-parse",
+            "refs/heads/main",
+        ])
         .output()
         .expect("git rev-parse");
     assert!(out.status.success(), "rev-parse failed");
@@ -57,11 +59,21 @@ fn interrupted_sync_at_every_state_converges() {
 
     run(&["edit", &a, "shared.md", "ONE\ntwo\nthree\n"]);
     run(&["sync", &a]);
-    let mut prev_remote = remote_main_oid(&remote);
 
+    let mut prev_remote;
     for state in ["fetching", "merging", "committing", "pushing"] {
-        run(&["edit", &b, "shared.md", &format!("one\ntwo\nthree\nB-{state}\n")]);
-        run(&["edit", &a, "shared.md", &format!("ONE\ntwo\nthree\nA-{state}\n")]);
+        run(&[
+            "edit",
+            &b,
+            "shared.md",
+            &format!("one\ntwo\nthree\nB-{state}\n"),
+        ]);
+        run(&[
+            "edit",
+            &a,
+            "shared.md",
+            &format!("ONE\ntwo\nthree\nA-{state}\n"),
+        ]);
         run(&["sync", &a]);
         prev_remote = remote_main_oid(&remote);
 
@@ -72,11 +84,13 @@ fn interrupted_sync_at_every_state_converges() {
         }
         run(&["sync", &b]);
         let r = remote_main_oid(&remote);
-        assert_ne!(r, prev_remote, "remote must advance after recovery at {state}");
+        assert_ne!(
+            r, prev_remote,
+            "remote must advance after recovery at {state}"
+        );
         run(&["sync", &a]);
         let r2 = remote_main_oid(&remote);
         assert_eq!(r, r2);
-        prev_remote = r2;
     }
 
     let a_text = std::fs::read_to_string(tmp.path().join("a/shared.md")).unwrap();
@@ -97,7 +111,11 @@ fn interrupted_sync_at_every_state_converges() {
         .iter()
         .filter_map(|c| std::fs::read_to_string(tmp.path().join("b").join(c)).ok())
         .collect();
-    let loser_marker = if winner_is_a { "B-pushing" } else { "A-pushing" };
+    let loser_marker = if winner_is_a {
+        "B-pushing"
+    } else {
+        "A-pushing"
+    };
     assert!(
         all_copies.contains(loser_marker),
         "loser preserved in a conflict copy: {copies:?}"
@@ -128,7 +146,10 @@ fn interrupted_merge_conflict_still_converges() {
     run_aborting(&["sync", &b], "committing");
 
     let status = run(&["status", &b]);
-    assert!(status.contains("conflict:"), "expected conflict report: {status}");
+    assert!(
+        status.contains("conflict:"),
+        "expected conflict report: {status}"
+    );
 
     run(&["sync", &b]);
     run(&["sync", &a]);

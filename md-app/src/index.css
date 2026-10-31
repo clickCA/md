@@ -5,8 +5,8 @@
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-prose: "Charter", "Bitstream Charter", "Sitka Text", "Iowan Old Style",
-    Georgia, "Noto Serif", serif;
+  --font-prose:
+    "Charter", "Bitstream Charter", "Sitka Text", "Iowan Old Style", Georgia, "Noto Serif", serif;
 
   --color-panel: var(--panel);
   --color-added: var(--added);
