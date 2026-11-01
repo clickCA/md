@@ -420,7 +420,9 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-baseline gap-3">
-          <span className="truncate text-sm text-white/90">{imageLabel(current)}</span>
+          <span className="truncate text-sm text-white/90">
+            {imageLabel(current.src, current.alt)}
+          </span>
           {count > 1 && (
             <span className="shrink-0 text-xs tabular-nums text-white/50">
               {safeIndex + 1} / {count}
@@ -616,7 +618,7 @@ function Thumb({
     <button
       type="button"
       onClick={onClick}
-      aria-label={imageLabel(image)}
+      aria-label={imageLabel(image.src, image.alt)}
       aria-current={active}
       className={cn(
         "h-14 w-20 shrink-0 overflow-hidden rounded border transition",

@@ -17,9 +17,9 @@ md/                          ← repo root: Cargo workspace + pnpm workspace
 │       └── src/db.rs        ←   SQLite journal + conflict records (rebuildable index)
 ├── md-app/                  ← Tauri 2 application (the only JS package today)
 │   ├── src/                 ← React UI (presentation + hooks)
-│   │   ├── components/quire/   live editor, viewer, panels
+│   │   ├── components/quire/   markdown editor, viewer, panels
 │   │   ├── hooks/useVault.ts   application state over the command surface
-│   │   └── lib/                pure helpers (ipc, images, vault model, blocks)
+│   │   └── lib/                pure helpers (ipc, vault model)
 │   └── src-tauri/           ← Tauri shell (adapter layer)
 │       ├── src/commands/    ←   THE UI ⇄ Rust boundary (see docs/api.md)
 │       └── src/error.rs     ←   structured AppError → { code, message }

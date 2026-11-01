@@ -1,0 +1,33 @@
+---
+import Base from "../layouts/Base.astro";
+import Header from "../components/Header.astro";
+import Hero from "../components/Hero.astro";
+import EditorShowcase from "../components/EditorShowcase.astro";
+import FileOwnership from "../components/FileOwnership.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<Base
+  title="md — Plain markdown. Serious sync."
+  description="A fast, local-first Markdown vault with a Rust git sync engine underneath. Plain .md files, standard git remotes, conflicts preserved."
+>
+  <div
+    class="flex min-h-dvh flex-col bg-[radial-gradient(60%_50%_at_50%_0%,color-mix(in_oklab,var(--primary)_7%,transparent),transparent)]"
+  >
+    {/* dark hero + showcase column */}
+    <div class="mx-auto flex w-full max-w-5xl flex-1 flex-col px-6">
+      <Header />
+      <main>
+        <Hero />
+        <EditorShowcase />
+      </main>
+    </div>
+
+    {/* full-bleed light band (re-scoped tokens) */}
+    <FileOwnership />
+
+    <div class="mx-auto w-full max-w-5xl px-6">
+      <Footer />
+    </div>
+  </div>
+</Base>

@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { Creds, GitState, Status, SyncResult } from "../types";
 import { errorMessage, isAuthError } from "../lib/ipc";
-import { type GitStatus, type VaultFile, fileName } from "../lib/vault";
+import { type VaultFile, fileName } from "../lib/vault";
 
 export type SyncPhase = "idle" | "pulling" | "pushing" | "syncing";
 
 export type SearchHit = { path: string; matches: { line: number; snippet: string }[] };
-
-type NoteStatusDto = { path: string; status: GitStatus };
 
 const baseName = (dir: string) => dir.split("/").filter(Boolean).pop() ?? dir;
 
@@ -40,6 +39,13 @@ export function useVault(dir: string) {
 
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncingRef = useRef(false);
+  /** Notes with in-memory edits that may not be on disk yet. */
+  const dirtyRef = useRef<Set<string>>(new Set());
+  /** Mirror of `files` for async merges — avoids stale closures. */
+  const filesRef = useRef(files);
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   /** Mirror of the values async triggers need — avoids stale closures. */
   const ctxRef = useRef({ dir, creds, autoSync, hasRemote: false });
@@ -75,23 +81,27 @@ export function useVault(dir: string) {
   /** Reload the whole vault: notes, contents, per-note git status. */
   const refresh = useCallback(
     async (d: string = dir) => {
-      const [paths, statuses, s, gs] = await Promise.all([
-        invoke<string[]>("note_list", { dir: d }),
-        invoke<NoteStatusDto[]>("note_statuses", { dir: d }).catch(() => [] as NoteStatusDto[]),
+      // One bulk command instead of a note_list + note_statuses +
+      // note_read×N + note_base×M fan-out — every IPC re-opens the vault.
+      const [notes, s, gs] = await Promise.all([
+        invoke<{ path: string; content: string; committed: string | null }[]>("note_snapshot", {
+          dir: d,
+        }).catch(() => []),
         invoke<Status>("vault_status", { dir: d }),
         invoke<GitState>("git_state_cmd", { dir: d }).catch(() => null),
       ]);
-      const statusOfPath = new Map(statuses.map((n) => [n.path, n.status]));
-      const loaded = await Promise.all(
-        paths.map(async (path): Promise<VaultFile> => {
-          const content = await invoke<string>("note_read", { dir: d, path }).catch(() => "");
-          const state = statusOfPath.get(path) ?? "clean";
-          if (state === "clean") return { path, content, committed: content };
-          if (state === "untracked") return { path, content, committed: null };
-          const base = await invoke<string | null>("note_base", { dir: d, path }).catch(() => null);
-          return { path, content, committed: base };
-        }),
-      );
+      // Dirty notes keep their in-memory buffer: typing can now overlap a
+      // background sync+refresh, and adopting stale disk content would
+      // revert the editor mid-keystroke. The pending save re-lands on disk
+      // and the next sync picks it up.
+      const dirty = dirtyRef.current;
+      const loaded = notes.map(({ path, content, committed }) => {
+        if (dirty.has(path)) {
+          const prev = filesRef.current.find((f) => f.path === path);
+          if (prev) return prev;
+        }
+        return { path, content, committed };
+      });
       setFiles(loaded);
       setStatus(s);
       setGitState(gs);
@@ -102,9 +112,10 @@ export function useVault(dir: string) {
 
   useEffect(() => {
     setActive(null);
+    dirtyRef.current.clear();
     if (!dir) return;
     void run("open", () => refresh(dir));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react/exhaustive-deps
   }, [dir]);
 
   const activeFile = useMemo(() => files.find((f) => f.path === active) ?? null, [files, active]);
@@ -187,6 +198,7 @@ export function useVault(dir: string) {
   }, []);
 
   const setContent = useCallback((path: string, content: string) => {
+    dirtyRef.current.add(path);
     setFiles((prev) => prev.map((f) => (f.path === path ? { ...f, content } : f)));
   }, []);
 
@@ -194,6 +206,7 @@ export function useVault(dir: string) {
     async (path: string, content: string) =>
       run("write", async () => {
         await invoke("note_write", { dir, path, content });
+        dirtyRef.current.delete(path);
         scheduleAutoSync();
       }),
     [dir, run, scheduleAutoSync],
@@ -237,12 +250,23 @@ export function useVault(dir: string) {
     async (path: string) => {
       await run("delete", async () => {
         await invoke("note_delete", { dir, path });
+        dirtyRef.current.delete(path);
         if (active === path) setActive(null);
         await refresh();
         scheduleAutoSync();
       });
     },
     [dir, run, active, refresh, scheduleAutoSync],
+  );
+
+  /** Reveal a note in the OS file manager (context menu action). */
+  const revealNote = useCallback(
+    async (path: string) =>
+      run("reveal", async () => {
+        const abs = await invoke<string>("vault_path", { dir, path });
+        await revealItemInDir(abs);
+      }),
+    [dir, run],
   );
 
   const moveNote = useCallback(
@@ -252,6 +276,17 @@ export function useVault(dir: string) {
       if (to === from) return;
       await run("move", async () => {
         await invoke("note_move", { dir, from, to });
+        // snapshot: the loop mutates the Set (delete + add), so iterate a copy
+        // oxlint-disable-next-line unicorn/no-useless-spread
+        for (const p of [...dirtyRef.current]) {
+          if (p === from) {
+            dirtyRef.current.delete(p);
+            dirtyRef.current.add(to);
+          } else if (p.startsWith(`${from}/`)) {
+            dirtyRef.current.delete(p);
+            dirtyRef.current.add(to + p.slice(from.length));
+          }
+        }
         setFiles((prev) =>
           prev.map((f) => ({
             ...f,
@@ -357,6 +392,7 @@ export function useVault(dir: string) {
     createNote,
     createFolder,
     deleteNote,
+    revealNote,
     moveNote,
     syncNow,
     gitAction,

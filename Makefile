@@ -16,10 +16,10 @@ SHELL := /usr/bin/env bash
 PNPM  ?= pnpm
 CARGO ?= cargo
 
-.PHONY: help setup dev lint lint-js lint-rust \
+.PHONY: help setup dev dev-landing lint lint-js lint-rust \
         format format-js format-rust format-check format-check-js format-check-rust \
-        typecheck test test-js test-rust build build-js build-rust \
-        check clean
+        typecheck test test-js test-rust build build-js build-landing build-rust \
+        android android-log check clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -32,9 +32,12 @@ setup: ## Install dependencies (pnpm + cargo fetch)
 dev: ## Run the desktop app (Tauri + Vite dev servers)
 	$(PNPM) --filter md-app tauri dev
 
+dev-landing: ## Run the landing page dev server
+	$(PNPM) --filter md-landing dev
+
 lint: lint-js lint-rust ## Lint JS and Rust
 
-lint-js: ## ESLint over the JS workspace
+lint-js: ## oxlint over the JS workspace
 	$(PNPM) lint
 
 lint-rust: ## Clippy over the Rust workspace (warnings are errors)
@@ -72,11 +75,21 @@ build: build-js build-rust ## Build everything
 build-js: ## Frontend production build
 	$(PNPM) build
 
+build-landing: ## Build the landing page (static site in landing/dist)
+	$(PNPM) build:landing
+
 build-rust: ## Compile the Rust workspace
 	$(CARGO) build --workspace
+
+android: ## Build debug APK (arm64) — requires ~/Android/env.sh (JDK + Android SDK)
+	source $(HOME)/Android/env.sh && \
+	$(PNPM) --filter md-app tauri android build --debug --apk --target aarch64
+
+android-log: ## Follow the app's logcat output for a connected device
+	$(HOME)/Android/Sdk/platform-tools/adb logcat --pid=$$($(HOME)/Android/Sdk/platform-tools/adb shell pidof -s com.clickca.md)
 
 check: lint format-check typecheck test build ## Full verification suite (mirrors CI)
 
 clean: ## Remove build artifacts
 	$(CARGO) clean
-	rm -rf md-app/dist
+	rm -rf md-app/dist landing/dist

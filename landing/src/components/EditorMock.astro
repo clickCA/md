@@ -1,0 +1,104 @@
+---
+import Icon from "./Icon.astro";
+
+interface Props {
+  /** Floating accent cards (hero) — omitted in the full-width showcase. */
+  floats?: boolean;
+}
+
+const { floats = false } = Astro.props;
+---
+
+<div class="relative">
+  {/* ── main window ─────────────────────────────────────────────────── */}
+  <div class="overflow-hidden rounded-lg border border-border bg-card shadow-2xl shadow-black/50">
+    <div class="flex items-center gap-1.5 border-b border-border bg-panel px-4 py-2.5">
+      <span class="size-2.5 rounded-full bg-border" aria-hidden></span>
+      <span class="size-2.5 rounded-full bg-border" aria-hidden></span>
+      <span class="size-2.5 rounded-full bg-border" aria-hidden></span>
+      <span class="ml-3 font-mono text-xs text-muted-foreground">sync-engine.md</span>
+      <span
+        class="ml-auto flex items-center gap-1 rounded-sm bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary"
+      >
+        <Icon name="check" class="size-3" />
+        synced
+      </span>
+    </div>
+
+    <div class="flex text-[13px] leading-6">
+      {/* file tree */}
+      <div class="hidden w-40 shrink-0 border-r border-border bg-panel/60 p-3 font-mono text-xs sm:block">
+        <p class="mb-2 flex items-center gap-1.5 font-semibold text-heading">
+          <Icon name="folder" class="size-3.5 text-muted-foreground" />
+          vault
+        </p>
+        <p class="ml-3 text-muted-foreground">notes/</p>
+        <p class="ml-3 text-muted-foreground">ideas.md</p>
+        <p class="ml-3 rounded-sm bg-accent px-1.5 py-0.5 text-foreground">sync-engine.md</p>
+        <p class="ml-3 text-muted-foreground">journal.md</p>
+      </div>
+
+      {/* editor pane */}
+      <div class="min-w-0 flex-1 space-y-2.5 p-5 font-mono">
+        <p>
+          <span class="text-muted-foreground"># </span>
+          <span class="font-semibold" style={`color: var(--heading)`}>Sync engine</span>
+        </p>
+        <p>
+          <span class="text-primary">- </span>
+          notes are <span style={`color: var(--hl-str)`}>"plain .md files"</span> on disk
+        </p>
+        <p>
+          <span class="text-primary">- </span>
+          every sync is journaled and <span style={`color: var(--hl-kw)`}>idempotent</span>
+        </p>
+        <p>
+          <span class="text-primary">- </span>
+          merges are <code class="rounded-sm bg-muted px-1.5 py-0.5">diff3</code> at the line
+          level
+        </p>
+        <div class="rounded-md border border-border bg-panel p-3 font-mono text-xs leading-5">
+          <p><span style={`color: var(--hl-kw)`}>fn</span> <span style={`color: var(--hl-fn)`}>sync</span><span class="text-foreground">() {`{`}</span></p>
+          <p class="pl-4">
+            <span style={`color: var(--hl-kw)`}>let</span>
+            <span class="text-foreground"> outcome = </span>
+            <span style={`color: var(--hl-fn)`}>journal</span>
+            <span class="text-foreground">.replay()?;</span>
+          </p>
+          <p class="pl-4 text-muted-foreground italic">// a kill at any state still converges</p>
+          <p class="text-foreground">{`}`}</p>
+        </div>
+        <p class="flex items-center gap-2">
+          <span
+            class="grid size-3.5 place-items-center rounded-[4px] border border-primary bg-primary text-[9px] text-primary-foreground"
+          >
+            <Icon name="check" class="size-2.5" />
+          </span>
+          <span class="text-foreground/75 line-through">fight with sync tooling</span>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {/* ── floating accent cards ───────────────────────────────────────── */}
+  {
+    floats && (
+      <>
+        <div class="absolute -top-6 -right-3 hidden rotate-2 items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 shadow-xl sm:flex">
+          <Icon name="git-branch" class="size-4 text-primary" />
+          <div class="text-xs">
+            <p class="font-semibold text-heading">diff3 auto-merge</p>
+            <p class="text-muted-foreground">no lost edits, ever</p>
+          </div>
+        </div>
+        <div class="absolute -bottom-6 -left-3 hidden -rotate-2 items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 shadow-xl sm:flex">
+          <Icon name="database" class="size-4 text-primary" />
+          <div class="text-xs">
+            <p class="font-semibold text-heading">FTS5 index verified</p>
+            <p class="text-muted-foreground">external edits always visible</p>
+          </div>
+        </div>
+      </>
+    )
+  }
+</div>

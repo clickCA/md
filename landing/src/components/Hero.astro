@@ -1,0 +1,42 @@
+---
+import Icon from "./Icon.astro";
+import EditorMock from "./EditorMock.astro";
+---
+
+<section class="grid flex-1 items-center gap-14 py-14 lg:grid-cols-[1.05fr_1fr] lg:py-20">
+  <div>
+    <p
+      class="mb-4 inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 font-mono text-[11px] text-primary"
+    >
+      <Icon name="monitor-smartphone" class="size-3.5" />
+      local-first · git-backed
+    </p>
+    <h1 class="text-4xl font-bold tracking-tight text-balance text-heading sm:text-5xl lg:text-[3.4rem] lg:leading-[1.08]">
+      Your notes. Your files.
+      <span class="text-primary">Your freedom.</span>
+    </h1>
+    <p class="mt-5 max-w-md text-pretty text-[15px] leading-relaxed text-muted-foreground">
+      A fast Markdown vault where your notes are plain files on disk and a standard git remote
+      does the syncing. The editor is a pleasure; lock-in is nowhere to be found.
+    </p>
+    <div class="mt-7 flex flex-wrap items-center gap-3">
+      <a
+        href="#download"
+        class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+      >
+        <Icon name="download" class="size-4" />
+        Download for free
+      </a>
+      <a
+        href="#ownership"
+        class="rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+      >
+        Your files stay yours
+      </a>
+    </div>
+    <p class="mt-4 font-mono text-xs text-muted-foreground">
+      Android beta today — desktop installers and iOS/iPadOS in the works
+    </p>
+  </div>
+  <EditorMock floats />
+</section>
