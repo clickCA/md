@@ -1,0 +1,18 @@
+# Maintainer: clickCA <chanakorn.aramsak@gmail.com>
+pkgname=md-app
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Local-first Markdown vault with git sync"
+arch=('x86_64')
+url="https://github.com/clickCA/md"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3')
+source=("md-app_${pkgver}_amd64.deb::https://github.com/clickCA/md/releases/download/v${pkgver}/md-app_${pkgver}_amd64.deb")
+sha256sums=('b9cce18877336dcd55a26b717f3c369dbdc7ac4c3fbbb4f425f5201267a10dec')
+options=('!strip')
+
+package() {
+  cd "$srcdir"
+  ar x *.deb
+  tar -xf data.tar.* -C "$pkgdir"
+}
