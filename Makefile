@@ -19,7 +19,7 @@ CARGO ?= cargo
 .PHONY: help setup dev dev-landing lint lint-js lint-rust \
         format format-js format-rust format-check format-check-js format-check-rust \
         typecheck test test-js test-rust build build-js build-landing build-rust \
-        check clean
+        android android-log check clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -80,6 +80,13 @@ build-landing: ## Build the landing page (static site in landing/dist)
 
 build-rust: ## Compile the Rust workspace
 	$(CARGO) build --workspace
+
+android: ## Build debug APK (arm64) — requires ~/Android/env.sh (JDK + Android SDK)
+	source $(HOME)/Android/env.sh && \
+	$(PNPM) --filter md-app tauri android build --debug --apk --target aarch64
+
+android-log: ## Follow the app's logcat output for a connected device
+	$(HOME)/Android/Sdk/platform-tools/adb logcat --pid=$$($(HOME)/Android/Sdk/platform-tools/adb shell pidof -s com.clickca.md)
 
 check: lint format-check typecheck test build ## Full verification suite (mirrors CI)
 
