@@ -98,6 +98,6 @@ Quality gates and layout are documented in
 
 ## Toolchain
 
-- Rust 1.94 (pinned in `rust-toolchain.toml`)
-- pnpm 12 (frontend), Node ≥ 22, GNU make (developer entry point)
+- Rust 1.99.1 (pinned in `rust-toolchain.toml`)
+- pnpm 12 (frontend), Node ≥ 26, GNU make (developer entry point)
 - Linux build deps: webkit2gtk-4.1, libgit2 ≥ 1.9 (mobile builds vendor libgit2 via cmake)

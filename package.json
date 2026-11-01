@@ -14,10 +14,8 @@
     "format:check": "pnpm --filter md-app format:check",
     "typecheck": "pnpm --filter md-app typecheck"
   },
+  "packageManager": "pnpm@12.9.1",
   "engines": {
-    "node": ">=22"
-  },
-  "dependencies": {
-    "@lezer/common": "^1.5.5"
+    "node": ">=26"
   }
 }
