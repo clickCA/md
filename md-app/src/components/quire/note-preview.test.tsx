@@ -73,7 +73,7 @@ describe("MarkdownPreview images", () => {
       file: { ...file, content: "![shot](Images/Pasted%20image%201.png)\n" },
     });
     await expect.element(page.getByRole("img")).toBeInTheDocument();
-    const img = document.querySelector(".prose-note img");
+    const img = document.querySelector("article img");
     expect(img?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
     expect(invoke).toHaveBeenCalledWith("read_file_bytes", {
       dir: "/vault",
@@ -86,8 +86,9 @@ describe("MarkdownPreview images", () => {
     await renderPreview({
       file: { ...file, content: "![shot](Images/Gone%20away.png)\n" },
     });
-    const missing = document.querySelector(".prose-note .md-image-missing");
-    expect(missing?.textContent).toBe("Gone away.png");
+    const missing = document.querySelector('[data-image-state="missing"]');
+    // imageLabel prefers the alt text when present (see lib/images.ts).
+    expect(missing?.textContent).toBe("shot");
   });
 
   it("renders remote images without touching the vault", async () => {
@@ -96,5 +97,29 @@ describe("MarkdownPreview images", () => {
     });
     await expect.element(page.getByRole("img")).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("renders Obsidian image embeds (![[…]]) like CommonMark images", async () => {
+    vi.mocked(invoke).mockResolvedValue("QUJD");
+    await renderPreview({
+      file: { ...file, content: "![[Images/Embedded%20shot.png]]\n" },
+    });
+    await expect.element(page.getByRole("img")).toBeInTheDocument();
+    const img = document.querySelector("article img");
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,QUJD");
+    expect(invoke).toHaveBeenCalledWith("read_file_bytes", {
+      dir: "/vault",
+      path: "Images/Embedded shot.png",
+    });
+  });
+
+  it("opens the image viewer when a rendered image is clicked", async () => {
+    vi.mocked(invoke).mockResolvedValue("QUJD");
+    await renderPreview({
+      file: { ...file, content: "![shot](Images/Pasted%20image%201.png)\n" },
+    });
+    await expect.element(page.getByRole("img")).toBeInTheDocument();
+    await page.getByRole("img").click();
+    await expect.element(page.getByRole("dialog", { name: "Image viewer" })).toBeInTheDocument();
   });
 });

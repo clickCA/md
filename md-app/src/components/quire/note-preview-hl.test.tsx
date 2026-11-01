@@ -65,5 +65,16 @@ describe("MarkdownPreview code highlighting", () => {
     );
     expect(inline).toBeTruthy();
     expect(inline!.className).not.toContain("hljs");
+    expect(inline!.className).toContain("md-inline-code");
+  });
+
+  it("styles fenced blocks with the code typography, not the inline pill", async () => {
+    await renderPreview();
+
+    const block = document.querySelector("pre code.language-rust");
+    expect(block).toBeTruthy();
+    expect(block!.className).toContain("md-code-block");
+    expect(block!.className).not.toContain("md-inline-code");
+    expect(block!.parentElement!.className).toContain("md-code-block-wrap");
   });
 });

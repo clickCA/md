@@ -7,8 +7,9 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import type { SyntaxNodeRef } from "@lezer/common";
+import type { SyntaxNodeRef, SyntaxNode } from "@lezer/common";
 import { type Extension, type Range } from "@codemirror/state";
+import { imageLabel, isImageSource, resolveImage, wikiImageParts } from "@/lib/images";
 
 /* ── Typora-style inline markdown preview ──────────────────────────────
    The markdown syntax tree drives three kinds of decorations:
@@ -72,7 +73,109 @@ class HrWidget extends WidgetType {
   }
 }
 
-function buildDecorations(view: EditorView): {
+/* The delimiter row (`| --- | :--: |`) is structural noise in the rendered
+   view. Replace it with a single hairline while the table is inactive; the
+   whole table switches back to raw markdown as soon as the caret enters it,
+   so the separator is editable (and Tab/Enter work) exactly when needed. */
+class TableRuleWidget extends WidgetType {
+  eq() {
+    return true;
+  }
+
+  toDOM() {
+    const rule = document.createElement("span");
+    rule.className = "cm-md-table-rule-widget";
+    return rule;
+  }
+
+  // Let the click map back into the (still present) markdown source, which
+  // activates the table and reveals the real delimiter row.
+  ignoreEvent() {
+    return false;
+  }
+}
+
+/* Vault images resolve asynchronously to data URLs (the asset protocol is
+   not enabled). Until the bytes arrive — and if they never do — the widget
+   shows the alt text or file name, so a pasted image is never a blank gap.
+   Clicking opens the full-screen viewer through the option callback. */
+class ImageWidget extends WidgetType {
+  constructor(
+    readonly src: string,
+    readonly alt: string,
+    readonly dir: string | undefined,
+    readonly onOpen: ((src: string) => void) | undefined,
+  ) {
+    super();
+  }
+
+  eq(other: ImageWidget) {
+    return other.src === this.src && other.alt === this.alt && other.dir === this.dir;
+  }
+
+  toDOM() {
+    const label = imageLabel(this.src, this.alt);
+    const wrap = document.createElement("span");
+    wrap.className = "cm-md-image cm-md-image-widget";
+    wrap.setAttribute("role", "button");
+    wrap.setAttribute("tabindex", "0");
+    wrap.setAttribute("aria-label", `Open image ${label}`);
+    wrap.title = "Click to open the image viewer";
+    wrap.textContent = label;
+
+    // Keep the editor from moving the caret or focusing on release.
+    wrap.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    const open = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onOpen?.(this.src);
+    };
+    wrap.addEventListener("click", open);
+    wrap.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") open(e);
+    });
+
+    if (this.dir) {
+      resolveImage(this.dir, this.src)
+        .then((url) => {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = label;
+          img.draggable = false;
+          // A corrupt bitmap must not leave an empty gap either.
+          img.addEventListener("error", () => {
+            wrap.replaceChildren(label);
+            wrap.classList.add("cm-md-image-missing");
+          });
+          wrap.replaceChildren(img);
+        })
+        .catch(() => {
+          wrap.classList.add("cm-md-image-missing");
+          wrap.title = `Could not load ${this.src}`;
+        });
+    }
+    return wrap;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+export type LivePreviewOptions = {
+  /** Vault root used to resolve image references into data URLs. */
+  dir?: string;
+  /** Open the full-screen image viewer for a clicked image. */
+  onOpenImage?: (src: string) => void;
+};
+
+function buildDecorations(
+  view: EditorView,
+  options: LivePreviewOptions,
+): {
   decorations: DecorationSet;
   atomic: DecorationSet;
 } {
@@ -102,8 +205,33 @@ function buildDecorations(view: EditorView): {
   const atomicOut: Range<Decoration>[] = [];
 
   // A line is "active" when any selection range touches it: raw syntax stays visible there.
+  // Tables are treated as one unit: entering any row reveals the whole
+  // table's source. Otherwise each arrow-key move would re-render the row
+  // just left and reveal the next, which makes tables flicker while editing.
+  const activeTables: Array<{ from: number; to: number }> = [];
+  for (const range of state.selection.ranges) {
+    const tree = ensureSyntaxTree(state, range.head, 100) ?? syntaxTree(state);
+    // At a line boundary resolveInner(pos, -1) looks *before* the line and
+    // can miss the table that starts exactly there. Probe just inside the
+    // caret, then fall back to the boundary itself.
+    const probes: Array<[number, -1 | 1]> = [
+      [Math.min(range.head + 1, state.doc.length), -1],
+      [range.head, 1],
+    ];
+    for (const [pos, side] of probes) {
+      let node: SyntaxNode | null = tree.resolveInner(pos, side);
+      while (node && node.name !== "Table") node = node.parent;
+      if (node) {
+        activeTables.push({ from: node.from, to: node.to });
+        break;
+      }
+    }
+  }
   const lineActive = (pos: number) => {
     const line = state.doc.lineAt(pos);
+    if (activeTables.some((table) => line.from >= table.from && line.to <= table.to)) {
+      return true;
+    }
     return state.selection.ranges.some((r) => r.from <= line.to && r.to >= line.from);
   };
   // Collapsed out of the layout entirely (Obsidian-style): headings sit
@@ -279,14 +407,38 @@ function buildDecorations(view: EditorView): {
       case "Image": {
         const label = labelRange(node);
         const url = node.node.getChild("URL");
+        const active = lineActive(node.from);
         let href = url ? state.doc.sliceString(url.from, url.to) : "";
+        let alt = label.from < label.to ? state.doc.sliceString(label.from, label.to).trim() : "";
+        let end = node.to;
         if (!url) {
           const tail = tailDestination(node.to);
           if (tail) {
             href = tail.href;
-            if (!lineActive(node.from)) hide(tail.from, tail.to);
+            end = tail.to;
           }
         }
+        // Obsidian embed: "![[Images/shot.png]]" parses as an Image with no
+        // URL child; the path sits inside the nested wikilink.
+        if (!url && !href) {
+          const embed = /^!\[\[([^\]\n]+)\]\]$/.exec(state.doc.sliceString(node.from, node.to));
+          if (embed) {
+            const parts = wikiImageParts(embed[1]);
+            href = parts.src;
+            alt = parts.alt;
+          }
+        }
+        // Inactive lines render the bitmap itself (replaced widget); the
+        // active line keeps the raw markdown so it stays editable.
+        if (!active && isImageSource(href)) {
+          const range = Decoration.replace({
+            widget: new ImageWidget(href, alt, options.dir, options.onOpenImage),
+          }).range(node.from, end);
+          out.push(range);
+          atomicOut.push(range);
+          return false; // children (marks/URL) are inside the replaced range
+        }
+        if (!url && end > node.to && !active) hide(node.to, end);
         if (label.from < label.to) {
           out.push(
             Decoration.mark({
@@ -336,9 +488,34 @@ function buildDecorations(view: EditorView): {
       }
 
       case "ListMark":
-      case "TableDelimiter":
         mark("cm-md-syntax", node.from, node.to);
         break;
+
+      case "TableHeader":
+        lineDeco("cm-md-table-header", node.from);
+        break;
+      case "TableRow":
+        lineDeco("cm-md-table-row", node.from);
+        break;
+      case "TableDelimiter": {
+        if (node.node.parent?.name === "Table") {
+          // The separator line. Hide its `---` soup behind a hairline while
+          // the table is inactive; inside active tables it stays editable.
+          if (!lineActive(node.from)) {
+            const line = state.doc.lineAt(node.from);
+            const prefix = /^[ \t]*(?:>[ \t]*)+/.exec(line.text)?.[0] ?? "";
+            const from = Math.max(node.from, line.from + prefix.length);
+            if (from < node.to) {
+              out.push(Decoration.replace({ widget: new TableRuleWidget() }).range(from, node.to));
+            }
+          }
+          break;
+        }
+        // A pipe: real text, kept in place so clicks and the caret map
+        // exactly, but visually recessed behind the cell content.
+        mark("cm-md-table-pipe", node.from, node.to);
+        break;
+      }
 
       case "TaskMarker": {
         // Always a widget, active line or not: the checkbox must not be
@@ -408,33 +585,34 @@ function buildDecorations(view: EditorView): {
   };
 }
 
-const livePreviewPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-    atomic: DecorationSet;
+export function mdLivePreview(options: LivePreviewOptions = {}): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      atomic: DecorationSet;
 
-    constructor(view: EditorView) {
-      const built = buildDecorations(view);
-      this.decorations = built.decorations;
-      this.atomic = built.atomic;
-    }
-
-    update(u: ViewUpdate) {
-      if (u.docChanged || u.selectionSet || u.viewportChanged) {
-        const built = buildDecorations(u.view);
+      constructor(view: EditorView) {
+        const built = buildDecorations(view, options);
         this.decorations = built.decorations;
         this.atomic = built.atomic;
       }
-    }
-  },
-  {
-    decorations: (v) => v.decorations,
-    // Only replaced widgets are atomic: there is no DOM inside a checkbox
-    // to click or move through. Transparent syntax must stay clickable,
-    // so the caret can land on the exact glyph and reveal its line.
-    provide: (plugin) =>
-      EditorView.atomicRanges.of((view) => view.plugin(plugin)?.atomic ?? Decoration.none),
-  },
-);
 
-export const mdLivePreview: Extension = livePreviewPlugin;
+      update(u: ViewUpdate) {
+        if (u.docChanged || u.selectionSet || u.viewportChanged) {
+          const built = buildDecorations(u.view, options);
+          this.decorations = built.decorations;
+          this.atomic = built.atomic;
+        }
+      }
+    },
+    {
+      decorations: (v) => v.decorations,
+      // Only replaced widgets are atomic: there is no DOM inside a checkbox
+      // or image to click or move through. Transparent syntax must stay
+      // clickable, so the caret can land on the exact glyph and reveal its
+      // line.
+      provide: (plugin) =>
+        EditorView.atomicRanges.of((view) => view.plugin(plugin)?.atomic ?? Decoration.none),
+    },
+  );
+}

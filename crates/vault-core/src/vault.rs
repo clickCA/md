@@ -119,9 +119,9 @@ impl Vault {
     /// Backed by an FTS5 index in the per-vault SQLite database. The index is
     /// a rebuildable optimization: before every query the current files are
     /// stat-ed and compared against the indexed signature — any drift (new,
-    /// edited, deleted, external) triggers a full rebuild, so an external
-    /// editor can never make results stale. The index is never treated as
-    /// proof that a note exists.
+    /// edited, deleted, external) triggers an incremental update of just the
+    /// drifted files, so an external editor can never make results stale.
+    /// The index is never treated as proof that a note exists.
     ///
     /// Non-ASCII queries (Thai, CJK, …) fall back to the line scan when the
     /// tokenizer finds nothing: space-less scripts tokenize poorly, and
@@ -137,23 +137,35 @@ impl Vault {
             .filter(|(rel, _)| rel.ends_with(".md"))
             .collect();
 
-        // --- freshness check: stat everything, compare with the signature ---
-        let mut current: Vec<(String, i64, i64)> = Vec::with_capacity(files.len());
+        // --- freshness check: stat everything, diff against the signature ---
+        let mut current: std::collections::BTreeMap<String, (i64, i64)> =
+            std::collections::BTreeMap::new();
         for (rel, path) in &files {
             let mtime = mtime_secs(path);
             let size = fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
-            current.push((rel.clone(), mtime, size));
+            current.insert(rel.clone(), (mtime, size));
         }
-        current.sort();
-        let indexed = self.db.search_signature()?;
-        if current != indexed {
-            let mut docs = Vec::with_capacity(files.len());
-            for (rel, path) in &files {
+        let indexed: std::collections::BTreeMap<String, (i64, i64)> = self
+            .db
+            .search_signature()?
+            .into_iter()
+            .map(|(path, mtime, size)| (path, (mtime, size)))
+            .collect();
+        let mut changed = Vec::new();
+        for (rel, path) in &files {
+            let (mtime, size) = current[rel];
+            if indexed.get(rel) != Some(&(mtime, size)) {
                 let content = fs::read_to_string(path).unwrap_or_default();
-                let size = content.len() as i64;
-                docs.push((rel.clone(), content, mtime_secs(path), size));
+                changed.push((rel.clone(), content, mtime, size));
             }
-            self.db.search_rebuild(&docs)?;
+        }
+        let removed: Vec<String> = indexed
+            .keys()
+            .filter(|rel| !current.contains_key(*rel))
+            .cloned()
+            .collect();
+        if !changed.is_empty() || !removed.is_empty() {
+            self.db.search_update(&changed, &removed)?;
         }
 
         // --- ranked FTS query, then per-note line extraction ---

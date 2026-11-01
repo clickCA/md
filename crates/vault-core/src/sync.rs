@@ -52,7 +52,9 @@ pub fn sync_with(
             let _ = vault.db.finish_run(run, o, &outcome.action);
         }
         Err(e) => {
-            let _ = vault.db.finish_run(run, "error", &e.to_string());
+            // `{e:#}` keeps the full anyhow chain — the outer context alone
+            // ("libgit2 push") hides the actual transport/credential error.
+            let _ = vault.db.finish_run(run, "error", &format!("{e:#}"));
         }
     }
     result

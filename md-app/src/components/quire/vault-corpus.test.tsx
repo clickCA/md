@@ -18,7 +18,7 @@ function mount(content: string) {
   return new EditorView({
     state: EditorState.create({
       doc: content,
-      extensions: [markdown({ base: markdownLanguage }), mdLivePreview],
+      extensions: [markdown({ base: markdownLanguage }), mdLivePreview()],
       selection: { anchor: content.length },
     }),
     parent: document.body,

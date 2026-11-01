@@ -5,7 +5,9 @@
   "description": "Local-first Markdown vault with real Git sync (monorepo root)",
   "scripts": {
     "dev": "pnpm --filter md-app dev",
+    "dev:landing": "pnpm --filter md-landing dev",
     "build": "pnpm --filter md-app build",
+    "build:landing": "pnpm --filter md-landing build",
     "test": "pnpm --filter md-app test:run",
     "lint": "pnpm --filter md-app lint",
     "format": "pnpm --filter md-app format",
@@ -14,5 +16,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@lezer/common": "^1.5.5"
   }
 }

@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { invoke } from "@tauri-apps/api/core";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import type { VaultFile } from "@/lib/vault";
-import { mdLivePreview } from "./live-preview";
+import { mdLivePreview, type LivePreviewOptions } from "./live-preview";
 import { MarkdownEditor } from "./note-editor";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 /* Live-preview rendering contract, per construct: on inactive lines the
    page reads like rendered markdown (syntax collapsed away), the raw
@@ -14,13 +17,17 @@ import { MarkdownEditor } from "./note-editor";
 
 const noop = () => {};
 
-function mount(doc: string) {
+/* 1×1 red PNG — a valid bitmap, so the widget keeps its <img> after load. */
+const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+function mount(doc: string, options: LivePreviewOptions = {}) {
   const view = new EditorView({
     // Same parser config as note-editor.tsx: markdown() defaults to plain
     // CommonMark — without the GFM base, task markers are not parsed.
     state: EditorState.create({
       doc,
-      extensions: [markdown({ base: markdownLanguage }), mdLivePreview],
+      extensions: [markdown({ base: markdownLanguage }), mdLivePreview(options)],
     }),
     parent: document.body,
   });
@@ -108,6 +115,44 @@ describe("mdLivePreview decorations", () => {
     }
   });
 
+  it("renders a pasted image as a bitmap and opens the viewer on click", async () => {
+    vi.mocked(invoke).mockResolvedValue(PNG_B64);
+    const onOpenImage = vi.fn();
+    const view = mount("\n![](assets/paste-1.png)", { dir: "/vault", onOpenImage });
+    try {
+      const widget = view.contentDOM.querySelector(".cm-md-image-widget") as HTMLElement;
+      expect(widget).toBeTruthy();
+      // Empty alt text must never collapse the image to a blank line.
+      expect(widget.textContent).toBe("paste-1.png");
+      await vi.waitFor(() => {
+        expect(widget.querySelector("img")?.getAttribute("src")).toBe(
+          `data:image/png;base64,${PNG_B64}`,
+        );
+      });
+      widget.click();
+      expect(onOpenImage).toHaveBeenCalledWith("assets/paste-1.png");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("renders Obsidian image embeds (![[…]]) as images", async () => {
+    vi.mocked(invoke).mockResolvedValue(PNG_B64);
+    const view = mount("\n![[Images/Pasted image.png]]", { dir: "/vault" });
+    try {
+      const widget = view.contentDOM.querySelector(".cm-md-image-widget") as HTMLElement;
+      expect(widget).toBeTruthy();
+      await vi.waitFor(() => {
+        expect(widget.querySelector("img")?.getAttribute("src")).toBe(
+          `data:image/png;base64,${PNG_B64}`,
+        );
+      });
+      expect(view.state.doc.toString()).toBe("\n![[Images/Pasted image.png]]");
+    } finally {
+      view.destroy();
+    }
+  });
+
   it("keeps bare and autolinked URLs visible", () => {
     const view = mount("\nsee <https://example.com> and https://example.com");
     try {
@@ -153,6 +198,36 @@ describe("mdLivePreview decorations", () => {
     }
   });
 
+  it("renders an inactive table with header, recessed pipes and a hairline rule", () => {
+    const view = mount("\n| Name | Age |\n| --- | ---: |\n| Ada | 36 |");
+    try {
+      expect(view.contentDOM.querySelector(".cm-md-table-header")).toBeTruthy();
+      expect(view.contentDOM.querySelector(".cm-md-table-row")).toBeTruthy();
+      expect(view.contentDOM.querySelectorAll(".cm-md-table-pipe").length).toBeGreaterThan(0);
+      expect(view.contentDOM.querySelector(".cm-md-table-rule-widget")).toBeTruthy();
+      // Presentation only: the markdown source stays untouched.
+      expect(view.state.doc.toString()).toBe("\n| Name | Age |\n| --- | ---: |\n| Ada | 36 |");
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("reveals the whole table's raw markdown while the caret is inside it", () => {
+    const source = "intro\n| A | B |\n| --- | --- |\n| **x** | y |";
+    // Cursor on the header line (line 2): the body row below must also show
+    // its raw syntax, so arrowing through a table does not re-render rows.
+    const view = mount(source);
+    try {
+      const head = view.state.doc.line(2).from;
+      view.dispatch({ selection: { anchor: head } });
+      expect(view.contentDOM.querySelector(".cm-md-table-rule-widget")).toBeNull();
+      expect(renderedLine(view)).toContain("**x**");
+      expect(view.state.doc.toString()).toBe(source);
+    } finally {
+      view.destroy();
+    }
+  });
+
   it("makes only the task checkbox atomic — collapsed syntax stays clickable", () => {
     const view = mount("\n**bold**\n- [ ] t");
     try {
@@ -178,7 +253,9 @@ describe("mdLivePreview in the editor", () => {
       content: "# Title\n\n**bold** here\n\nplain line",
       committed: null,
     };
-    await render(<MarkdownEditor file={file} onChange={noop} onCursor={noop} dark={false} />);
+    await render(
+      <MarkdownEditor file={file} dir="/vault" onChange={noop} onCursor={noop} dark={false} />,
+    );
     // Cursor is on line 1 (the heading): raw. Lines 3 and 5 are inactive.
     const text = (document.querySelector(".cm-content")?.textContent ?? "").replace(/\u200b/g, "");
     expect(text).toContain("# Title"); // active line shows raw markdown

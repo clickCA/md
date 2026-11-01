@@ -16,9 +16,9 @@ SHELL := /usr/bin/env bash
 PNPM  ?= pnpm
 CARGO ?= cargo
 
-.PHONY: help setup dev lint lint-js lint-rust \
+.PHONY: help setup dev dev-landing lint lint-js lint-rust \
         format format-js format-rust format-check format-check-js format-check-rust \
-        typecheck test test-js test-rust build build-js build-rust \
+        typecheck test test-js test-rust build build-js build-landing build-rust \
         check clean
 
 help: ## Show available targets
@@ -31,6 +31,9 @@ setup: ## Install dependencies (pnpm + cargo fetch)
 
 dev: ## Run the desktop app (Tauri + Vite dev servers)
 	$(PNPM) --filter md-app tauri dev
+
+dev-landing: ## Run the landing page dev server
+	$(PNPM) --filter md-landing dev
 
 lint: lint-js lint-rust ## Lint JS and Rust
 
@@ -72,6 +75,9 @@ build: build-js build-rust ## Build everything
 build-js: ## Frontend production build
 	$(PNPM) build
 
+build-landing: ## Build the landing page (static site in landing/dist)
+	$(PNPM) build:landing
+
 build-rust: ## Compile the Rust workspace
 	$(CARGO) build --workspace
 
@@ -79,4 +85,4 @@ check: lint format-check typecheck test build ## Full verification suite (mirror
 
 clean: ## Remove build artifacts
 	$(CARGO) clean
-	rm -rf md-app/dist
+	rm -rf md-app/dist landing/dist

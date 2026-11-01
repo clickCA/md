@@ -7,6 +7,7 @@ use vault_core::git_backend::GitBackend;
 use vault_core::vault::Vault;
 use vault_core::{SyncOutcome, sync};
 
+use super::blocking;
 use super::dto::{ConflictDto, CredDto, StatusDto, conflict_dto, status_dto};
 use crate::error::AppError;
 
@@ -55,52 +56,67 @@ pub fn default_vault_dir(app: tauri::AppHandle) -> Result<String, AppError> {
 
 #[tauri::command]
 #[tracing::instrument(level = "debug")]
-pub fn vault_probe(dir: String) -> ProbeDto {
-    let p = PathBuf::from(&dir);
-    let is_vault = p.join(".git").exists();
-    let mut remote_url = None;
-    let mut note_count = None;
-    if is_vault && let Ok(v) = Vault::open(&p) {
-        remote_url = v.git.remote_url().ok().flatten();
-        note_count = v.fs_files().map(|f| f.len() as u64).ok();
-    }
-    ProbeDto {
-        exists: p.exists(),
-        is_vault,
-        remote_url,
-        note_count,
-    }
+pub async fn vault_probe(dir: String) -> ProbeDto {
+    blocking(move || {
+        let p = PathBuf::from(&dir);
+        let is_vault = p.join(".git").exists();
+        let mut remote_url = None;
+        let mut note_count = None;
+        if is_vault && let Ok(v) = Vault::open(&p) {
+            remote_url = v.git.remote_url().ok().flatten();
+            note_count = v.fs_files().map(|f| f.len() as u64).ok();
+        }
+        Ok(ProbeDto {
+            exists: p.exists(),
+            is_vault,
+            remote_url,
+            note_count,
+        })
+    })
+    .await
+    .unwrap_or(ProbeDto {
+        exists: false,
+        is_vault: false,
+        remote_url: None,
+        note_count: None,
+    })
 }
 
 /// Open the folder as a vault, creating one if it is not a vault yet.
 /// Existing vaults get their remote updated when `remote_url` is provided.
 #[tauri::command]
 #[tracing::instrument(level = "debug", err)]
-pub fn vault_make(dir: String, remote_url: Option<String>) -> Result<StatusDto, AppError> {
-    let p = PathBuf::from(&dir);
-    if p.join(".git").exists() {
-        let mut v = Vault::open(&p)?;
-        if let Some(url) = remote_url {
-            v.git.set_remote(&url)?;
+pub async fn vault_make(dir: String, remote_url: Option<String>) -> Result<StatusDto, AppError> {
+    blocking(move || {
+        let p = PathBuf::from(&dir);
+        if p.join(".git").exists() {
+            let mut v = Vault::open(&p)?;
+            if let Some(url) = remote_url {
+                v.git.set_remote(&url)?;
+            }
+            return status_dto(&v);
         }
-        return status_dto(&v);
-    }
-    let v = Vault::create(&p, remote_url.as_deref())?;
-    status_dto(&v)
+        let v = Vault::create(&p, remote_url.as_deref())?;
+        status_dto(&v)
+    })
+    .await
 }
 
 #[tauri::command]
 #[tracing::instrument(level = "debug", err)]
-pub fn vault_status(dir: String) -> Result<StatusDto, AppError> {
-    status_dto(&super::open_vault(&dir)?)
+pub async fn vault_status(dir: String) -> Result<StatusDto, AppError> {
+    blocking(move || status_dto(&super::open_vault(&dir)?)).await
 }
 
 /// One idempotent sync cycle: commit pending → fetch → merge → push.
 #[tauri::command]
 #[tracing::instrument(level = "debug", err, skip(credentials))]
-pub fn vault_sync(dir: String, credentials: Option<CredDto>) -> Result<SyncDto, AppError> {
-    let vault = super::open_vault(&dir)?;
-    let creds = credentials.as_ref().map(|c| c.creds());
-    let outcome = sync::sync_with(&vault, creds.as_ref())?;
-    Ok(sync_dto(outcome))
+pub async fn vault_sync(dir: String, credentials: Option<CredDto>) -> Result<SyncDto, AppError> {
+    blocking(move || {
+        let vault = super::open_vault(&dir)?;
+        let creds = credentials.as_ref().map(|c| c.creds());
+        let outcome = sync::sync_with(&vault, creds.as_ref())?;
+        Ok(sync_dto(outcome))
+    })
+    .await
 }

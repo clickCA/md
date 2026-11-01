@@ -45,12 +45,17 @@ export type VaultFile = {
 
 export type GitStatus = "modified" | "untracked" | "clean";
 
-export type ViewMode = "live" | "source";
+/** "edit" = inline live preview; "preview" = fully rendered reading view */
+export type ViewMode = "edit" | "preview";
 
 export type SidePanel = "files" | "search" | "git";
 
 export function fileName(path: string) {
   return path.split("/").pop()!.replace(/\.md$/, "");
+}
+
+export function wordCount(text: string) {
+  return (text.match(/\p{L}[\p{L}\p{N}'’-]*/gu) ?? []).length;
 }
 
 export function parentOf(path: string) {

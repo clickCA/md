@@ -1,0 +1,38 @@
+---
+import Icon from "./Icon.astro";
+---
+
+<header class="flex items-center justify-between py-5">
+  <a href="#" class="flex items-center gap-2.5">
+    <span class="grid size-7 place-items-center rounded-md bg-primary text-primary-foreground">
+      <Icon name="file-text" class="size-4" />
+    </span>
+    <span class="font-mono text-sm font-bold tracking-tight text-heading">md</span>
+  </a>
+  <div class="flex items-center gap-1">
+    <a
+      href="#download"
+      class="mr-1 rounded-md px-2.5 py-1 text-[13px] font-medium text-foreground hover:bg-accent"
+    >
+      Download
+    </a>
+    <button
+      type="button"
+      id="theme-toggle"
+      aria-label="Toggle color theme"
+      class="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+    >
+      <Icon name="sun" class="icon-sun size-4" />
+      <Icon name="moon" class="icon-moon size-4" />
+    </button>
+  </div>
+</header>
+
+<script is:inline>
+  document.getElementById("theme-toggle")?.addEventListener("click", () => {
+    const light = document.documentElement.classList.toggle("light");
+    try {
+      localStorage.setItem("md-theme", light ? "light" : "dark");
+    } catch {}
+  });
+</script>

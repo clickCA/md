@@ -4,6 +4,7 @@ import {
   ArrowUp,
   GitBranch,
   GitCommitHorizontal,
+  PenLine,
   RefreshCw,
   ShieldAlert,
   Upload,
@@ -25,6 +26,10 @@ export type GitPanelProps = {
   lastRun: Journal | null;
   lastSyncError: string | null;
   onOpen: (path: string) => void;
+  /** Open the note's uncommitted changes in the diff viewer. */
+  onShowDiff: (path: string) => void;
+  /** Note currently shown in the diff viewer; its row is highlighted. */
+  diffPath?: string | null;
   onSync: () => void;
   onGitAction: (action: string) => void;
   onInit: () => void;
@@ -44,6 +49,8 @@ export function GitPanel({
   lastRun,
   lastSyncError,
   onOpen,
+  onShowDiff,
+  diffPath,
   onSync,
   onGitAction,
   onInit,
@@ -148,6 +155,8 @@ export function GitPanel({
           title="Changes"
           files={changes}
           onOpen={onOpen}
+          onShowDiff={onShowDiff}
+          diffPath={diffPath}
           headerAction={
             changes.length > 0 && (
               <span className="font-mono text-[11px] text-muted-foreground">{changes.length}</span>
@@ -249,11 +258,15 @@ function ChangeGroup({
   title,
   files,
   onOpen,
+  onShowDiff,
+  diffPath,
   headerAction,
 }: {
   title: string;
   files: VaultFile[];
   onOpen: (path: string) => void;
+  onShowDiff: (path: string) => void;
+  diffPath?: string | null;
   headerAction?: ReactNode;
 }) {
   return (
@@ -270,18 +283,27 @@ function ChangeGroup({
         <ul>
           {files.map((f) => {
             const status = statusOf(f);
+            const diffing = f.path === diffPath;
             return (
               <li
                 key={f.path}
-                className="group flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-sidebar-accent"
+                className={cn(
+                  "group flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-sidebar-accent",
+                  diffing && "bg-sidebar-accent",
+                )}
               >
+                {/* Primary action: view the uncommitted diff (VS Code-style
+                    SCM navigation); editing stays one click away. */}
                 <button
                   type="button"
-                  onClick={() => onOpen(f.path)}
+                  onClick={() => onShowDiff(f.path)}
+                  aria-label={`Diff ${f.path}`}
+                  aria-current={diffing || undefined}
+                  title="View diff"
                   className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 text-left"
                 >
-                  <span className="truncate text-[13px]">{fileName(f.path)}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">
+                  <span className="min-w-0 truncate text-[13px]">{fileName(f.path)}</span>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                     {f.path.includes("/") ? f.path.split("/").slice(0, -1).join("/") : ""}
                   </span>
                 </button>
@@ -293,6 +315,15 @@ function ChangeGroup({
                 >
                   {status === "modified" ? "M" : "U"}
                 </span>
+                <button
+                  type="button"
+                  aria-label={`Edit ${f.path}`}
+                  title="Edit note"
+                  onClick={() => onOpen(f.path)}
+                  className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <PenLine className="size-3.5" aria-hidden />
+                </button>
               </li>
             );
           })}

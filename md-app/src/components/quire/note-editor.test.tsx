@@ -8,7 +8,7 @@ import { MarkdownEditor } from "./note-editor";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "../../index.css";
 
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const noop = () => {};
@@ -93,7 +93,7 @@ describe("MarkdownEditor click hitboxes", () => {
     // 4) Clicking just below the inline title lands on the first line, not
     // one or two lines further down (title spacing must be part of its
     // measured height — padding, not margin).
-    const title = document.querySelector(".inline-title") as HTMLElement;
+    const title = document.querySelector(".cm-editor h1") as HTMLElement;
     const tr = title.getBoundingClientRect();
     const below = click(tr.left + 10, tr.bottom + 3);
     expect(below).toBeGreaterThanOrEqual(0);
@@ -161,6 +161,37 @@ describe("MarkdownEditor inline title", () => {
   });
 });
 
+describe("MarkdownEditor table editing", () => {
+  it("moves cells with Tab instead of indenting the line", async () => {
+    const content = ["| A | B |", "| --- | --- |", "| c | d |"].join("\n");
+    await render(
+      <MarkdownEditor
+        file={{ ...file, content }}
+        dir="/vault"
+        onChange={noop}
+        onCursor={noop}
+        dark={false}
+      />,
+    );
+    await raf();
+    const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+    view.dispatch({ selection: { anchor: view.state.doc.line(3).from + 2 } });
+    view.focus();
+    const event = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    view.contentDOM.dispatchEvent(event);
+
+    // The table keymap sits ahead of indentWithTab: the row is rewritten and
+    // padded, and the caret moved to the second cell.
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.line(1).text).toBe("| A   | B   |");
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(3);
+  });
+});
+
 describe("MarkdownEditor image paste/drop", () => {
   const mount = async (onChange = noop) => {
     await render(
@@ -199,9 +230,7 @@ describe("MarkdownEditor image paste/drop", () => {
     vi.mocked(invoke).mockClear();
     const view = await mount();
 
-    view.contentDOM.dispatchEvent(
-      new ClipboardEvent("paste", { bubbles: true, cancelable: true }),
-    );
+    view.contentDOM.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true }));
 
     expect(invoke).not.toHaveBeenCalled();
   });
