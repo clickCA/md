@@ -1,0 +1,15 @@
+# Android (16 KB page-size devices): the NDK's default 4 KB ELF LOAD
+# alignment makes libmd_app_lib.so unloadable on 16 KB kernels (many 2025+
+# phones), so force 16 KB for every Android target. Desktop targets are
+# unaffected. See developer.android.com/guide/practices/page-sizes.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
