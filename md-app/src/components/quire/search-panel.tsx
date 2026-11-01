@@ -83,7 +83,7 @@ export function SearchPanel({ onOpen, search }: Props) {
                       <span className="w-5 shrink-0 text-right font-mono text-[10px] leading-5">
                         {line}
                       </span>
-                      <span className="truncate leading-5">
+                      <span className="min-w-0 flex-1 truncate leading-5">
                         <Highlight text={snippet} query={q.toLowerCase()} />
                       </span>
                     </button>

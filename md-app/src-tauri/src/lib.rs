@@ -26,6 +26,33 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .setup(|app| {
+            // macOS routes Cmd+C/X/V/A into the webview through the responder
+            // chain, which only fires when a native Edit menu carries those
+            // accelerators — without this menu the shortcuts never reach the
+            // page. Windows/Linux bind the Ctrl variants inside the webview
+            // itself, so they don't need a menu (and the clipboard context
+            // menu in the UI covers mouse users on every platform).
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::menu::{MenuBuilder, SubmenuBuilder};
+                let edit = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let menu = MenuBuilder::new(app).item(&edit).build()?;
+                app.set_menu(menu)?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = app;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::vault::default_vault_dir,
             commands::vault::vault_probe,
@@ -38,6 +65,7 @@ pub fn run() {
             commands::notes::note_delete,
             commands::notes::note_statuses,
             commands::notes::note_base,
+            commands::notes::note_snapshot,
             commands::notes::note_move,
             commands::notes::folder_create,
             commands::notes::search_notes,

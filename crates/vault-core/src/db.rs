@@ -203,6 +203,38 @@ impl Db {
         Ok(())
     }
 
+    /// Incremental index maintenance: upsert only the drifted files and drop
+    /// the deleted ones, in one transaction. Keeps the first search after an
+    /// edit O(1 note) instead of O(all notes) — a save bumps one mtime, so
+    /// one note is re-tokenized, not the whole vault.
+    pub fn search_update(
+        &self,
+        docs: &[(String, String, i64, i64)],
+        removed: &[String],
+    ) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut put_state = tx.prepare(
+                "INSERT OR REPLACE INTO search_state (path, mtime, size) VALUES (?1, ?2, ?3)",
+            )?;
+            let mut del_doc = tx.prepare("DELETE FROM search_index WHERE path = ?1")?;
+            let mut put_doc =
+                tx.prepare("INSERT INTO search_index (path, content) VALUES (?1, ?2)")?;
+            let mut del_state = tx.prepare("DELETE FROM search_state WHERE path = ?1")?;
+            for (path, content, mtime, size) in docs {
+                put_state.execute(rusqlite::params![path, mtime, size])?;
+                del_doc.execute([path])?;
+                put_doc.execute(rusqlite::params![path, content])?;
+            }
+            for path in removed {
+                del_state.execute([path])?;
+                del_doc.execute([path])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Ranked full-text query. Returns (path, snippet) in bm25 relevance
     /// order. The snippet is plain text — the UI re-derives highlighted lines
     /// from the file itself, so no markup crosses this boundary.

@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "browser": true
+  },
+  "ignorePatterns": ["dist", "src-tauri/target", "playwright-report", "test-results"],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    // react-hooks strict mode: the codebase still uses the
+    // reset-state-on-input-change idiom in a few effects. Migrating to the
+    // key-based / during-render patterns is a follow-up refactor — tracked
+    // as UI tech debt, warnings must not grow.
+    "react/set-state-in-effect": "warn"
+  }
+}

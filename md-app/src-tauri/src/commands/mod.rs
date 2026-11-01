@@ -26,3 +26,20 @@ use crate::error::AppError;
 pub(crate) fn open_vault(dir: &str) -> Result<Vault, AppError> {
     Vault::open(&PathBuf::from(dir)).map_err(Into::into)
 }
+
+/// Run blocking engine work (git network I/O, FTS rebuilds, worktree scans)
+/// on the async runtime's blocking pool.
+///
+/// Tauri executes non-async commands inline on the main thread — a slow
+/// fetch/push there stalls the GTK event loop and freezes the whole window.
+/// Every command that touches disk, git, or SQLite is therefore `async` and
+/// hops through this helper; the UI stays responsive for the duration.
+pub(crate) async fn blocking<T, F>(work: F) -> Result<T, AppError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, AppError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| AppError::Internal(format!("background worker: {e}")))?
+}

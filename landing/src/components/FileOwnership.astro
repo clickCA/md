@@ -1,0 +1,54 @@
+---
+import Icon from "./Icon.astro";
+
+const pillars = [
+  {
+    icon: "folder-open",
+    title: "Plain Markdown",
+    body: "Ordinary .md files in ordinary folders. Open your vault in any editor, run any script, keep backups — the app earns its place every day.",
+  },
+  {
+    icon: "git-branch",
+    title: "Standard Git",
+    body: "One normal git repository per vault. Any remote you own, any host. Non-overlapping edits merge line by line; conflicts are preserved, never overwritten.",
+  },
+  {
+    icon: "database",
+    title: "Honest metadata",
+    body: "SQLite only accelerates search and sync — it can be rebuilt from the files at any time. The files are the truth, the index is a cache.",
+  },
+];
+---
+
+<!-- The .light class re-scopes the shared token set, giving the dark page a
+     genuine light band without any second stylesheet. -->
+<section id="ownership" class="light scroll-mt-8 border-y border-border bg-background text-foreground">
+  <div class="mx-auto max-w-5xl px-6 py-20">
+    <h2 class="text-3xl font-bold tracking-tight text-balance text-heading sm:text-4xl">
+      Plain Markdown. Standard Git. Works everywhere.
+    </h2>
+    <p class="mt-3 max-w-xl text-pretty text-[15px] leading-relaxed text-muted-foreground">
+      Your notes shouldn't be trapped in an app. Nothing here is proprietary — leave anytime,
+      take everything.
+    </p>
+
+    <div class="mt-10 grid gap-4 sm:grid-cols-3">
+      {
+        pillars.map(({ icon, title, body }) => (
+          <div class="rounded-lg border border-border bg-card p-5">
+            <span class="mb-3 grid size-8 place-items-center rounded-md bg-primary/10 text-primary">
+              <Icon name={icon} class="size-4" />
+            </span>
+            <h3 class="mb-1 text-sm font-semibold text-heading">{title}</h3>
+            <p class="text-[13px] leading-relaxed text-muted-foreground">{body}</p>
+          </div>
+        ))
+      }
+    </div>
+
+    <p class="mt-10 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+      <Icon name="shield-check" class="size-4 text-primary" />
+      your notes outlive the app — that's the design, not a promise
+    </p>
+  </div>
+</section>

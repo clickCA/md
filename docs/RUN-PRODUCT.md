@@ -63,20 +63,22 @@ pnpm --filter md-app tauri build    # installer/bundle under md-app/src-tauri/ta
    creates the SQLite journal, and opens the workspace. Optionally paste a
    Git remote URL now, or later in Vault settings.
 2. **Workspace**: left sidebar (files · search · source control tabs), center
-   live editor, right inspector (word count, reading time, heading outline).
+   Markdown editor (renders inline while you type, `Ctrl E` for the rendered preview), right inspector (word count, reading time, heading outline).
 
 ### The 60-second feature tour
 
 | Do this                                                | What happens                                                        |
 | ------------------------------------------------------ | ------------------------------------------------------------------- |
-| `Ctrl N`, type a title, write Markdown                  | Live preview follows you; autosaves 700 ms after you stop typing    |
+| `Ctrl N`, type a title, write Markdown                  | Inline preview as you type (`Ctrl E` renders the full page); autosaves 700 ms after you stop typing |
 | Paste an image into a note                              | Saved into the vault, rendered inline; click it → zoom/pan/rotate viewer |
 | `Ctrl K` (or sidebar → search)                          | Full-text search (FTS5), relevance-ranked, click a hit to jump to the line |
 | Sidebar → source control                                | Local-ahead/remote-ahead status, recent sync journal, push/pull/sync buttons |
 | Set a remote + edit for ~5 s                            | Auto-sync fires by itself; failures show quietly inside the panel   |
 | Edit the same note on another clone, sync both          | Non-overlapping edits merge; overlapping edits keep both (`.conflict-<ts>.md`) |
+| Right-click in the editor, preview or any input         | Cut · Copy · Paste · Select All — the same menu on macOS, Windows and Linux; `Cmd`/`Ctrl+C` `X` `V` work in the editor everywhere |
 | Open the same folder in any other editor                | Plain Markdown + plain Git — everything keeps working; Quire's search picks up the change on its next query |
 | Vault settings (gear)                                   | Remote URL, auto-sync toggle, theme switch                          |
+| Typography (top-bar **T**, or `Ctrl K` → Typography)    | Pick a font family and size for Writing, Reading and Code — applied instantly and saved per machine |
 
 ## 5. Where the data lives
 

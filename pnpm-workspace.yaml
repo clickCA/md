@@ -1,5 +1,6 @@
 packages:
   - md-app
+  - landing
 
 # supply-chain guard: hold brand-new releases back; these pinned versions are
 # exempt because the project was scaffolded against them

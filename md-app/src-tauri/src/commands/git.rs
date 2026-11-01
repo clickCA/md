@@ -55,25 +55,28 @@ fn git_state(vault: &Vault) -> Result<GitStateDto, AppError> {
 
 #[tauri::command]
 #[tracing::instrument(level = "debug", err)]
-pub fn git_state_cmd(dir: String) -> Result<GitStateDto, AppError> {
-    git_state(&open_vault(&dir)?)
+pub async fn git_state_cmd(dir: String) -> Result<GitStateDto, AppError> {
+    super::blocking(move || git_state(&open_vault(&dir)?)).await
 }
 
 #[tauri::command]
 #[tracing::instrument(level = "debug", err, skip(credentials))]
-pub fn git_action(
+pub async fn git_action(
     dir: String,
     action: String,
     credentials: Option<CredDto>,
 ) -> Result<GitStateDto, AppError> {
-    let vault = open_vault(&dir)?;
-    let creds = credentials.as_ref().map(|c| c.creds());
-    let result = match action.as_str() {
-        "push" => vault_core::sync::push_now(&vault, creds.as_ref()),
-        "take-remote" => vault_core::sync::take_remote(&vault, creds.as_ref()),
-        "force-publish" => vault_core::sync::force_publish(&vault, creds.as_ref()),
-        other => Err(anyhow::anyhow!("unknown action: {other}")),
-    };
-    result?;
-    git_state(&vault)
+    super::blocking(move || {
+        let vault = open_vault(&dir)?;
+        let creds = credentials.as_ref().map(|c| c.creds());
+        let result = match action.as_str() {
+            "push" => vault_core::sync::push_now(&vault, creds.as_ref()),
+            "take-remote" => vault_core::sync::take_remote(&vault, creds.as_ref()),
+            "force-publish" => vault_core::sync::force_publish(&vault, creds.as_ref()),
+            other => Err(anyhow::anyhow!("unknown action: {other}")),
+        };
+        result?;
+        git_state(&vault)
+    })
+    .await
 }

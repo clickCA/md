@@ -237,10 +237,15 @@ impl GitBackend for GixBackend {
     }
 
     fn remote_main_oid(&self) -> Result<Option<Oid>> {
+        // `refs/remotes/origin/HEAD` is ambiguous: in a normal clone it is a
+        // symref to the default branch, but the refspec `+refs/heads/*` also
+        // maps a remote branch literally named `HEAD` onto it — shadowing the
+        // real `main` tip with a stale oid (seen in the wild). Prefer the
+        // explicit branch refs first; fall back to HEAD last.
         for name in [
-            "refs/remotes/origin/HEAD",
             "refs/remotes/origin/main",
             "refs/remotes/origin/master",
+            "refs/remotes/origin/HEAD",
         ] {
             if let Some(mut r) = self.repo.try_find_reference(name)? {
                 if let Ok(id) = r.follow_to_object() {

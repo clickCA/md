@@ -11,7 +11,10 @@ const files: VaultFile[] = [
 
 const noop = () => {};
 
-function renderTree(onOpen: (path: string) => void = noop) {
+function renderTree(
+  onOpen: (path: string) => void = noop,
+  onDelete: (path: string) => void = noop,
+) {
   return render(
     <FileTree
       files={files}
@@ -23,6 +26,8 @@ function renderTree(onOpen: (path: string) => void = noop) {
       onCreateFolder={noop}
       onOpenFolder={noop}
       onMove={noop}
+      onDelete={onDelete}
+      onReveal={noop}
     />,
   );
 }
@@ -39,5 +44,15 @@ describe("FileTree", () => {
     await renderTree(onOpen);
     await page.getByText("Welcome").click();
     expect(onOpen).toHaveBeenCalledWith("Welcome.md");
+  });
+
+  it("deletes a note from its right-click menu", async () => {
+    const onDelete = vi.fn();
+    await renderTree(noop, onDelete);
+    await page.getByText("Welcome").click({ button: "right" });
+    const item = page.getByRole("menuitem", { name: "Delete" });
+    await expect.element(item).toBeInTheDocument();
+    await item.click();
+    expect(onDelete).toHaveBeenCalledWith("Welcome.md");
   });
 });

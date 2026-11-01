@@ -1,0 +1,26 @@
+@import "tailwindcss";
+/* Same design system as the desktop app — the single source of truth is
+   md-app/src/theme.css (workspace dependency, exported as "md-app/theme.css"),
+   so the landing can never drift from the product's palette. */
+@import "md-app/theme.css";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  /* Theme-toggle icon swap driven by the html.light class (no JS DOM churn). */
+  html.light .icon-sun {
+    display: none;
+  }
+  html:not(.light) .icon-moon {
+    display: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}

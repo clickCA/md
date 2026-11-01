@@ -270,3 +270,47 @@ fn line_merge_unit_cases() {
     let added_vs_added = try_line_merge(b"", b"new-a\n", b"new-b\n");
     assert!(added_vs_added.is_none());
 }
+
+/// Regression (2026-10-31 vault incident): a remote branch literally named
+/// `HEAD` is mapped by the fetch refspec onto `refs/remotes/origin/HEAD`,
+/// which used to shadow the real `main` tip in `remote_main_oid()`. Every
+/// sync then believed the remote never moved, skipped the merge, and pushed
+/// a doomed non-fast-forward lineage over the true remote tip.
+#[test]
+fn stale_remote_head_branch_does_not_shadow_main() {
+    let e = setup();
+
+    e.a.write_note("doc.md", "one\ntwo\nthree\nfour\nfive\n")
+        .unwrap();
+    sync::sync(&e.a).expect("a initial push");
+    sync::sync(&e.b).expect("b pull");
+
+    // Plant the trap: a stale branch named `HEAD` on the remote, pointing at
+    // the *old* tip. (`git branch` rejects the name; ref plumbing allows it.)
+    let stale = e.a.git.remote_main_oid().unwrap().unwrap();
+    let remote_dir = e._tmp.path().join("remote.git");
+    let out = std::process::Command::new("git")
+        .args([
+            "--git-dir",
+            &remote_dir.to_string_lossy(),
+            "update-ref",
+            "refs/heads/HEAD",
+            &stale,
+        ])
+        .output()
+        .expect("git update-ref");
+    assert!(out.status.success(), "planting HEAD branch failed");
+
+    e.b.write_note("doc.md", "one\ntwo\nthree\nfour\nFIVE\n")
+        .unwrap();
+    sync::sync(&e.b).expect("b pushes its edit");
+
+    e.a.write_note("doc.md", "ONE\ntwo\nthree\nfour\nfive\n")
+        .unwrap();
+    let out = sync::sync(&e.a).expect("a must merge with the real main tip");
+    assert_eq!(out.action, "merge", "a must take the merge path, not push");
+    assert_eq!(note(&e.a, "doc.md"), "ONE\ntwo\nthree\nfour\nFIVE\n");
+
+    sync::sync(&e.b).expect("b converges");
+    assert_eq!(note(&e.b, "doc.md"), "ONE\ntwo\nthree\nfour\nFIVE\n");
+}

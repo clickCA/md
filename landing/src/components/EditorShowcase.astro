@@ -1,0 +1,58 @@
+---
+import Icon from "./Icon.astro";
+import EditorMock from "./EditorMock.astro";
+
+const annotations = [
+  {
+    icon: "zap",
+    title: "Live preview",
+    body: "Headings, code, tasks and wikilinks render as you type — no mode switching.",
+  },
+  {
+    icon: "panels-left",
+    title: "Everything in reach",
+    body: "File explorer, instant search and sync state, one keystroke away.",
+  },
+  {
+    icon: "clock",
+    title: "Fast on big vaults",
+    body: "A Rust core and virtualized editor keep multi-megabyte notes fluid.",
+  },
+];
+---
+
+<section class="py-20">
+  <h2 class="text-3xl font-bold tracking-tight text-balance text-heading sm:text-4xl">
+    A beautiful place to work with Markdown.
+  </h2>
+  <p class="mt-3 max-w-xl text-pretty text-[15px] leading-relaxed text-muted-foreground">
+    The real workspace — files on the left, the note in the middle, sync state at the bottom.
+  </p>
+
+  <div class="relative mt-10">
+    <EditorMock />
+    {/* annotation chips hug the window on wide screens */}
+    <div class="pointer-events-none absolute -top-5 right-6 hidden items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 shadow-lg lg:flex">
+      <Icon name="zap" class="size-4 text-primary" />
+      <span class="text-xs font-medium text-foreground">live preview as you type</span>
+    </div>
+    <div class="pointer-events-none absolute -bottom-5 right-24 hidden items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 shadow-lg lg:flex">
+      <Icon name="search" class="size-4 text-primary" />
+      <span class="text-xs font-medium text-foreground">instant full-text search</span>
+    </div>
+  </div>
+
+  <div class="mt-14 grid gap-4 sm:grid-cols-3">
+    {
+      annotations.map(({ icon, title, body }) => (
+        <div class="rounded-lg border border-border bg-card p-5">
+          <span class="mb-3 grid size-8 place-items-center rounded-md bg-primary/10 text-primary">
+            <Icon name={icon} class="size-4" />
+          </span>
+          <h3 class="mb-1 text-sm font-semibold text-heading">{title}</h3>
+          <p class="text-[13px] leading-relaxed text-muted-foreground">{body}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>

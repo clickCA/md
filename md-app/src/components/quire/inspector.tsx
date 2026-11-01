@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Hash, Link2 } from "lucide-react";
 import { type VaultFile, backlinks, fileName, headings } from "@/lib/vault";
 import { cn } from "@/lib/utils";
@@ -11,9 +12,12 @@ type Props = {
 };
 
 export function Inspector({ file, files, onOpen, onJump }: Props) {
-  const outline = headings(file.content);
-  const links = backlinks(files, file.path);
-  const words = file.content.trim().split(/\s+/).filter(Boolean).length;
+  const outline = useMemo(() => headings(file.content), [file.content]);
+  const links = useMemo(() => backlinks(files, file.path), [files, file.path]);
+  const words = useMemo(
+    () => file.content.trim().split(/\s+/).filter(Boolean).length,
+    [file.content],
+  );
 
   return (
     <aside
