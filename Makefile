@@ -37,7 +37,7 @@ dev-landing: ## Run the landing page dev server
 
 lint: lint-js lint-rust ## Lint JS and Rust
 
-lint-js: ## ESLint over the JS workspace
+lint-js: ## oxlint over the JS workspace
 	$(PNPM) lint
 
 lint-rust: ## Clippy over the Rust workspace (warnings are errors)

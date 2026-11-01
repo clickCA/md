@@ -115,7 +115,7 @@ export function useVault(dir: string) {
     dirtyRef.current.clear();
     if (!dir) return;
     void run("open", () => refresh(dir));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react/exhaustive-deps
   }, [dir]);
 
   const activeFile = useMemo(() => files.find((f) => f.path === active) ?? null, [files, active]);
@@ -276,6 +276,8 @@ export function useVault(dir: string) {
       if (to === from) return;
       await run("move", async () => {
         await invoke("note_move", { dir, from, to });
+        // snapshot: the loop mutates the Set (delete + add), so iterate a copy
+        // oxlint-disable-next-line unicorn/no-useless-spread
         for (const p of [...dirtyRef.current]) {
           if (p === from) {
             dirtyRef.current.delete(p);
