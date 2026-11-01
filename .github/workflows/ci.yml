@@ -58,6 +58,10 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # the pinned toolchain is a separate install without components; add them
+      - name: Toolchain components (rustfmt, clippy)
+        run: rustup component add rustfmt clippy
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Tauri Linux prerequisites

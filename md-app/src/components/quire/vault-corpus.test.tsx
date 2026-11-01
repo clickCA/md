@@ -3,7 +3,14 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { mdLivePreview } from "./live-preview";
-import { corpus } from "./vault-corpus.generated";
+
+/* The real fixture is gitignored (personal content) and generated locally with
+   `node scripts/make-vault-corpus.mjs`. Glob instead of a static import so
+   checkouts without the fixture (CI) still typecheck — the test skips below. */
+const generated = import.meta.glob<{
+  corpus: readonly { name: string; content: string }[];
+}>("./vault-corpus.generated.ts", { eager: true });
+const corpus = Object.values(generated)[0]?.corpus ?? [];
 
 /* Sweep the live preview over every file of a real Obsidian vault
    (regenerate with: node scripts/make-vault-corpus.mjs). The invariants:
@@ -25,8 +32,8 @@ function mount(content: string) {
   });
 }
 
-// The fixture is `as const`, which narrows length to a literal; widen it so
-// skipIf stays meaningful when the fixture is absent (length 0).
+// The fixture is typed `readonly` via the glob; widen length so skipIf stays
+// meaningful when the fixture is absent (length 0).
 const corpusSize: number = corpus.length;
 
 describe("live preview over the real vault", () => {
