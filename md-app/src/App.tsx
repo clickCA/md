@@ -8,7 +8,9 @@ import { isAuthError } from "./lib/ipc";
 import { isMobile, persistLastVault, readLastVault } from "./lib/platform";
 import { useVault } from "./hooks/useVault";
 import { useTypography } from "./hooks/useTypography";
+import { useUpdate } from "./hooks/useUpdate";
 import { Workspace } from "./components/quire/workspace";
+import { UpdateBanner } from "./components/quire/update-banner";
 import { Welcome } from "./components/Welcome";
 import ConflictCard from "./components/ConflictCard";
 import ClipboardMenu from "./components/ui/ClipboardMenu";
@@ -53,6 +55,7 @@ export default function App() {
 
   const vault = useVault(dir);
   const { status, busy, error, run, refresh } = vault;
+  const updater = useUpdate();
 
   useEffect(() => {
     void (async () => {
@@ -228,6 +231,7 @@ export default function App() {
           <Workspace
             vault={vault}
             dark={!isLight}
+            onCheckUpdates={() => void updater.checkNow()}
             onToggleTheme={() => setIsLight((v) => !v)}
             onOpenFolder={() => (isMobile ? setListOpen(true) : void pickVault())}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -331,6 +335,16 @@ export default function App() {
       {/* Cross-platform Cut/Copy/Paste right-click menu (also owns the
           blanket suppression of the engine's default context menu). */}
       <ClipboardMenu />
+
+      {/* Auto-update (updater plugin): appears only when a newer signed
+          release exists and the transport is reachable. */}
+      <UpdateBanner
+        update={updater.update}
+        installing={updater.installing}
+        error={updater.error}
+        onInstall={() => void updater.install()}
+        onDismiss={updater.dismiss}
+      />
     </div>
   );
 }
