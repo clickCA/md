@@ -164,3 +164,114 @@ export function backlinks(files: VaultFile[], target: string) {
   const needle = `[[${fileName(target)}]]`;
   return files.filter((f) => f.path !== target && f.content.includes(needle));
 }
+
+/* ── Related notes ─────────────────────────────────────────────────────
+   Syntactic suggestion ("related notes" in the product plan), deliberately
+   not semantic: shared wikilink targets, direct links in either direction,
+   and recurring-term overlap — computed from the in-memory note set. */
+
+/** Wikilink targets a note points at, normalized for comparison. */
+function outgoingLinks(content: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of content.matchAll(/\[\[([^\]]+)\]\]/g)) {
+    const target = m[1].split(/[|#]/)[0].trim();
+    if (target) out.add(target.toLowerCase());
+  }
+  return out;
+}
+
+const STOPWORDS = new Set([
+  "about",
+  "after",
+  "also",
+  "been",
+  "before",
+  "being",
+  "does",
+  "each",
+  "from",
+  "have",
+  "into",
+  "just",
+  "made",
+  "make",
+  "more",
+  "most",
+  "much",
+  "only",
+  "other",
+  "over",
+  "some",
+  "such",
+  "than",
+  "that",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "they",
+  "this",
+  "those",
+  "through",
+  "under",
+  "very",
+  "was",
+  "were",
+  "what",
+  "when",
+  "which",
+  "while",
+  "will",
+  "with",
+  "your",
+]);
+
+/** Lowercase word counts for terms of 4+ characters, minus stopwords. */
+function termCounts(content: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const m of content.toLowerCase().matchAll(/[a-z][a-z0-9']{3,}/g)) {
+    const w = m[0];
+    if (STOPWORDS.has(w)) continue;
+    counts.set(w, (counts.get(w) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Other notes most connected to `target`, best first. Signals: shared
+ * outgoing wikilinks (+3 each), a direct link in either direction (+3), and
+ * up to five recurring shared terms (+1 each). Pure function over the
+ * in-memory files — no index, no network.
+ */
+export function relatedNotes(files: VaultFile[], target: string, limit = 5): VaultFile[] {
+  const self = files.find((f) => f.path === target);
+  if (!self) return [];
+  const needle = `[[${fileName(target)}]]`;
+  const selfOut = outgoingLinks(self.content);
+  const selfTerms = termCounts(`${fileName(target)}\n${self.content}`);
+
+  const scored: { file: VaultFile; score: number }[] = [];
+  for (const f of files) {
+    if (f.path === target) continue;
+    let score = 0;
+    const out = outgoingLinks(f.content);
+    for (const t of selfOut) {
+      if (out.has(t)) score += 3;
+    }
+    if (f.content.includes(needle)) score += 3;
+    if (self.content.includes(`[[${fileName(f.path)}]]`)) score += 3;
+
+    const terms = termCounts(`${fileName(f.path)}\n${f.content}`);
+    let shared = 0;
+    for (const term of selfTerms.keys()) {
+      if (shared >= 5) break;
+      if (terms.has(term)) shared += 1;
+    }
+    score += shared;
+
+    if (score > 0) scored.push({ file: f, score });
+  }
+  scored.sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path));
+  return scored.slice(0, limit).map((s) => s.file);
+}

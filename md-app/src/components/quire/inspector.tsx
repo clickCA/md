@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { Hash, Link2 } from "lucide-react";
-import { type VaultFile, backlinks, fileName, headings } from "@/lib/vault";
+import { Hash, Link2, Network } from "lucide-react";
+import { type VaultFile, backlinks, fileName, headings, relatedNotes } from "@/lib/vault";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
 
@@ -14,6 +14,7 @@ type Props = {
 export function Inspector({ file, files, onOpen, onJump }: Props) {
   const outline = useMemo(() => headings(file.content), [file.content]);
   const links = useMemo(() => backlinks(files, file.path), [files, file.path]);
+  const related = useMemo(() => relatedNotes(files, file.path), [files, file.path]);
   const words = useMemo(
     () => file.content.trim().split(/\s+/).filter(Boolean).length,
     [file.content],
@@ -77,6 +78,31 @@ export function Inspector({ file, files, onOpen, onJump }: Props) {
                 </li>
               );
             })}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <PanelHeader title={`Related ${related.length}`} />
+        {related.length === 0 ? (
+          <p className="px-3 text-xs leading-relaxed text-muted-foreground">
+            No obvious connections.
+          </p>
+        ) : (
+          <ul className="px-1.5">
+            {related.map((f) => (
+              <li key={f.path}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(f.path)}
+                  title={f.path}
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[13px] hover:bg-sidebar-accent"
+                >
+                  <Network className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="truncate">{fileName(f.path)}</span>
+                </button>
+              </li>
+            ))}
           </ul>
         )}
       </div>
