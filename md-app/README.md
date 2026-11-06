@@ -40,8 +40,9 @@ cargo build --release -p md-app   # from the repo root → target/release/md-app
 4. **AI agent** (`Ctrl Shift A`, or the ✨ button in the title bar) — a right-side
    panel that runs your own coding-agent CLI (**opencode**, **Claude Code**, or
    **codex**) against the vault folder and streams its output live. Pick a
-   provider, type a prompt, review what it changed as clickable chips (or in the
-   Source control panel), and sync normally. Auth comes from the CLI itself — you
+   provider, type a prompt, watch its tool calls (file edits, commands) in the
+   activity log, review what it changed as clickable chips (or in the Source
+   control panel), and sync normally. Auth comes from the CLI itself — you
    must have signed in to it from a terminal once; Quire never stores keys.
    "New session" restarts continuity; "Auto-approve edits" controls the agent's
    permission mode.

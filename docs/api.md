@@ -171,8 +171,13 @@ The AI agent panel runs a coding-agent CLI against the vault folder. This is the
   the provider's non-interactive permission flag (`--auto`, `--full-auto`,
   `--permission-mode bypassPermissions`). Without it, Claude Code still edits existing files
   (`acceptEdits`) while Bash/git stays disabled.
-- `AgentEvent` (streamed): `{ kind: "output", stream: "stdout" | "stderr", text }`.
+- `AgentEvent` (streamed): `{ kind: "output", stream: "stdout" | "stderr", text }` or
+  `{ kind: "tool", name, detail }` — a completed tool call (edit path, bash command, grep
+  pattern…). Claude (`stream-json`) and opencode (`--format json`) emit structured JSONL that
+  Rust normalizes into both kinds; codex streams raw `output` lines only.
 - `AgentRun = { status: "done" | "cancelled", changedFiles: string[], sessionId?, summary?, durationMs }`.
+  `sessionId` comes from Claude's terminal `result` event, or from opencode's `sessionID`
+  (stamped on every streamed event) — it feeds the next turn's `--resume` / `--session`.
 - The agent runs **non-interactively in `dir`** (the vault root), so everything it edits lands in
   the working tree and flows through the normal git review/sync path (`git_status_cmd`, sync).
 - `changedFiles` is parsed from `git status --porcelain` after the run — a snapshot of the working

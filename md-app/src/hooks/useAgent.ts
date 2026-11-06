@@ -94,6 +94,7 @@ export function useAgent(dir: string, onTurnFinished?: (changed: string[]) => vo
         provider,
         prompt,
         output: "",
+        toolCalls: [],
         status: "running",
         summary: null,
         changedFiles: [],
@@ -107,6 +108,16 @@ export function useAgent(dir: string, onTurnFinished?: (changed: string[]) => vo
       const resumeSessionId = sessionIdRef.current ?? undefined;
       const channel = new Channel<AgentEvent>();
       channel.onmessage = (event) => {
+        if (event.kind === "tool") {
+          setTurns((prev) =>
+            prev.map((t) =>
+              t.id === id
+                ? { ...t, toolCalls: [...t.toolCalls, { name: event.name, detail: event.detail }] }
+                : t,
+            ),
+          );
+          return;
+        }
         if (event.kind === "output") {
           setTurns((prev) =>
             prev.map((t) => (t.id === id ? { ...t, output: t.output + event.text + "\n" } : t)),

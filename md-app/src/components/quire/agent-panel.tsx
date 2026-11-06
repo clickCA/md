@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { ArrowUp, RotateCcw, ShieldCheck, Sparkles, Square } from "lucide-react";
+import { ArrowUp, RotateCcw, ShieldCheck, Sparkles, Square, Wrench } from "lucide-react";
 import type { AgentProviderId, AgentTurn } from "@/lib/agent";
-import { chipName, openableChangedFiles } from "@/lib/agent";
+import { chipName, openableChangedFiles, toolLabel } from "@/lib/agent";
 import type { AgentProviderInfo } from "@/lib/agent";
 import { cn } from "@/lib/utils";
 import { IconButton } from "./sidebar";
@@ -175,6 +175,26 @@ export function AgentPanel({
                   <pre className="overflow-x-auto rounded-md border border-border px-2 py-1.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground">
                     {turn.output}
                   </pre>
+                )}
+
+                {turn.toolCalls.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+                      Activity
+                    </span>
+                    <ul className="mt-1 space-y-0.5">
+                      {turn.toolCalls.map((call, i) => (
+                        <li
+                          key={`${i}-${call.name}`}
+                          title={toolLabel(call)}
+                          className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
+                        >
+                          <Wrench className="size-3 shrink-0 opacity-70" aria-hidden />
+                          <span className="truncate">{toolLabel(call)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
                 {turn.summary && (

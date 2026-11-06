@@ -165,8 +165,11 @@ pub fn build_args(provider: AgentProvider, prompt: &str, opts: &AgentRunOptions)
         AgentProvider::Claude => {
             // stream-json emits one JSON event per line to stdout, so the UI
             // gets tokens as they arrive instead of one blob at the end.
+            // --verbose is required by `-p --output-format stream-json`
+            // (without it the CLI exits with an error before running).
             args.push("--output-format".into());
             args.push("stream-json".into());
+            args.push("--verbose".into());
             args.push("--include-partial-messages".into());
         }
         AgentProvider::Opencode | AgentProvider::Codex => {}
@@ -178,7 +181,9 @@ pub fn build_args(provider: AgentProvider, prompt: &str, opts: &AgentRunOptions)
 
 fn provider_base_args(provider: AgentProvider) -> &'static [&'static str] {
     match provider {
-        AgentProvider::Opencode => &["run"],
+        // --format json streams structured events (tool calls, session id)
+        // that the parsers in this module normalize for the panel.
+        AgentProvider::Opencode => &["run", "--format", "json"],
         AgentProvider::Codex => &["exec"],
         AgentProvider::Claude => &["-p"],
     }
@@ -225,14 +230,47 @@ pub fn resolve_binary(bin: &str) -> Option<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
-// Claude Code stream-json normalisation
+// Stream normalisation (Claude Code stream-json + opencode --format json)
 // ---------------------------------------------------------------------------
 
+/// A short human-readable detail for a tool-call input object: the first
+/// recognisable field (file path, command, pattern, …). Covers Claude's
+/// snake_case and opencode's camelCase input styles. Truncated so one huge
+/// Bash command can't flood the panel.
+fn tool_detail(input: &serde_json::Value) -> Option<String> {
+    const KEYS: [&str; 10] = [
+        "file_path",
+        "filePath",
+        "command",
+        "pattern",
+        "path",
+        "url",
+        "query",
+        "description",
+        "skill",
+        "name",
+    ];
+    let obj = input.as_object()?;
+    let raw = KEYS
+        .iter()
+        .find_map(|k| obj.get(*k).and_then(|v| v.as_str()))
+        .filter(|s| !s.trim().is_empty())?;
+    let mut detail = raw.trim().to_string();
+    const CAP: usize = 160;
+    if detail.chars().count() > CAP {
+        detail = detail.chars().take(CAP).collect::<String>() + "…";
+    }
+    Some(detail)
+}
+
 /// What a single line of `claude -p --output-format stream-json` means to us.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClaudeLine {
     /// Human-readable assistant text (streamed; `partial: true` runs too).
     Text(String),
+    /// A tool the assistant invoked, with a short detail (file path,
+    /// command, pattern…).
+    Tool { name: String, detail: String },
     /// The terminal `result` event — carries the session id + summary.
     Ended {
         session_id: Option<String>,
@@ -241,53 +279,177 @@ pub enum ClaudeLine {
 }
 
 /// Parse one stdout line from Claude Code's `stream-json` output into
-/// something the transcript can show. Non-text lines (system init, tool
-/// results Claude handled on its own, the `result` event, garbage) return
-/// `None`/`Ended` instead of leaking raw JSON into the panel.
-pub fn parse_claude_line(line: &str) -> Option<ClaudeLine> {
+/// everything the transcript can show — one assistant message can carry
+/// text *and* tool calls, hence the vec. Non-text lines (system init, tool
+/// results Claude handled on its own, garbage) return an empty vec instead
+/// of leaking raw JSON into the panel.
+pub fn parse_claude_line(line: &str) -> Vec<ClaudeLine> {
     let line = line.trim();
     if !line.starts_with('{') || !line.ends_with('}') {
-        return None;
+        return Vec::new();
     }
-    let v: serde_json::Value = serde_json::from_str(line).ok()?;
-    match v.get("type")?.as_str()? {
-        "assistant" => {
-            let message = v.get("message")?;
-            let content = message.get("content")?;
-            let mut out = String::new();
+    let v: serde_json::Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    match v.get("type").and_then(|t| t.as_str()) {
+        Some("assistant") => {
+            let Some(content) = v.get("message").and_then(|m| m.get("content")) else {
+                return Vec::new();
+            };
+            let mut out = Vec::new();
+            let mut text = String::new();
             if let Some(blocks) = content.as_array() {
                 for block in blocks {
-                    if block.get("type").and_then(|t| t.as_str()) != Some("text") {
-                        continue;
-                    }
-                    if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
-                        out.push_str(t);
-                    } else if let Some(d) = block.get("delta").and_then(|d| d.as_str()) {
-                        out.push_str(d);
+                    match block.get("type").and_then(|t| t.as_str()) {
+                        Some("text") => {
+                            if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                                text.push_str(t);
+                            } else if let Some(d) = block.get("delta").and_then(|d| d.as_str()) {
+                                text.push_str(d);
+                            }
+                        }
+                        Some("tool_use") => {
+                            let name = block
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("tool")
+                                .to_string();
+                            let detail =
+                                tool_detail(block.get("input").unwrap_or(&serde_json::Value::Null))
+                                    .unwrap_or_default();
+                            out.push(ClaudeLine::Tool { name, detail });
+                        }
+                        _ => {}
                     }
                 }
             } else if let Some(s) = content.as_str() {
-                out.push_str(s);
+                text.push_str(s);
             }
-            if out.is_empty() {
-                None
-            } else {
-                Some(ClaudeLine::Text(out))
+            if !text.is_empty() {
+                out.insert(0, ClaudeLine::Text(text));
             }
+            out
         }
-        "result" => {
+        Some("result") => {
             let session_id = v
                 .get("session_id")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let summary = result_summary(&v);
-            Some(ClaudeLine::Ended {
+            vec![ClaudeLine::Ended {
                 session_id,
                 summary,
-            })
+            }]
         }
-        _ => None,
+        _ => Vec::new(),
     }
+}
+
+/// What a single line of `opencode run --format json` means to us. Every
+/// event carries the run's session id, so any successful parse yields at
+/// least a [`OpencodeLine::Session`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpencodeLine {
+    /// Completed assistant text segment (opencode emits finished parts).
+    Text(String),
+    /// A completed (or failed) tool call with a short human detail.
+    Tool { name: String, detail: String },
+    /// The session this run belongs to — first one wins; enables precise
+    /// `--session` resume instead of best-effort `--continue`.
+    Session(String),
+    /// A server/session error surfaced by the CLI.
+    Error(String),
+}
+
+/// opencode's own display title usually embeds the tool name (`Edit
+/// notes/a.md`, `Glob "pattern"`); strip that prefix so the panel can
+/// render `name · detail` without repeating the name. Titles that don't
+/// start with the name (bash's is the raw command) pass through unchanged.
+fn strip_tool_prefix<'a>(name: &str, title: &'a str) -> &'a str {
+    let title = title.trim();
+    let lower = title.to_ascii_lowercase();
+    let name_lower = name.to_ascii_lowercase();
+    if lower.starts_with(&name_lower) {
+        let rest = &title[name_lower.len()..];
+        if rest.starts_with(' ') || rest.starts_with('"') || rest.starts_with(':') {
+            return rest.trim();
+        }
+    }
+    title
+}
+
+/// Parse one stdout line of opencode's `--format json` stream
+/// (`{"type":…, "timestamp":…, "sessionID":…, …}` per its `run` command).
+/// Unknown event types (`step_start`, `reasoning`, …) and garbage yield no
+/// semantic entries; the session id is still harvested when present.
+pub fn parse_opencode_line(line: &str) -> Vec<OpencodeLine> {
+    let line = line.trim();
+    if !line.starts_with('{') || !line.ends_with('}') {
+        return Vec::new();
+    }
+    let v: serde_json::Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    if let Some(id) = v
+        .get("sessionID")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        out.push(OpencodeLine::Session(id.to_string()));
+    }
+    match v.get("type").and_then(|t| t.as_str()) {
+        Some("text") => {
+            let text = v
+                .get("part")
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !text.is_empty() {
+                out.push(OpencodeLine::Text(text));
+            }
+        }
+        Some("tool_use") => {
+            let Some(part) = v.get("part") else {
+                return out;
+            };
+            let Some(name) = part.get("tool").and_then(|t| t.as_str()) else {
+                return out;
+            };
+            let state = part.get("state").unwrap_or(&serde_json::Value::Null);
+            // opencode's state.title is its own display string for the call
+            // ("Edit notes/a.md", the bash command line); fall back to the
+            // shared input-key scan.
+            let detail = state
+                .get("title")
+                .and_then(|t| t.as_str())
+                .map(|t| strip_tool_prefix(name, t).to_string())
+                .or_else(|| tool_detail(state.get("input").unwrap_or(&serde_json::Value::Null)))
+                .unwrap_or_default();
+            out.push(OpencodeLine::Tool {
+                name: name.to_string(),
+                detail,
+            });
+        }
+        Some("error") => {
+            let msg = v
+                .get("error")
+                .and_then(|e| {
+                    e.get("data")
+                        .and_then(|d| d.get("message"))
+                        .and_then(|m| m.as_str())
+                        .or_else(|| e.get("name").and_then(|n| n.as_str()))
+                })
+                .unwrap_or("unknown error");
+            out.push(OpencodeLine::Error(msg.to_string()));
+        }
+        _ => {}
+    }
+    out
 }
 
 /// Human summary from the CLI's own counters, e.g.
@@ -400,9 +562,12 @@ pub struct AgentProviderDto {
 #[derive(Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AgentEvent {
-    /// One chunk of raw output (a line from the CLI, or a normalized Claude
-    /// text event).
+    /// One chunk of output (a raw CLI line, or a normalized assistant text
+    /// event).
     Output { stream: String, text: String },
+    /// A tool call the agent made (edit, bash, grep, …), normalized across
+    /// providers so the panel can show live activity.
+    Tool { name: String, detail: String },
 }
 
 #[derive(Serialize)]
@@ -590,32 +755,69 @@ fn run_agent_impl(
     let (done_tx, done_rx) = std::sync::mpsc::channel::<&'static str>();
 
     let cli_result: Arc<Mutex<ClaudeResult>> = Arc::default();
+    // Session id observed in the stream (opencode stamps every event with
+    // one); lets the next turn resume precisely instead of `--continue`.
+    let stream_session: Arc<Mutex<Option<String>>> = Arc::default();
 
-    // stdout reader (provider-specific: claude emits JSONL on stdout)
+    // stdout reader (provider-specific: claude and opencode emit JSONL)
     let provider = inv.provider;
     let emit = on_event.clone();
     let done = done_tx.clone();
     let result_slot = cli_result.clone();
+    let session_slot = stream_session.clone();
     let stdout_reader = thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let line = line.trim_end_matches('\r').to_string();
             match provider {
-                AgentProvider::Claude => match parse_claude_line(&line) {
-                    Some(ClaudeLine::Text(t)) => {
-                        let _ = emit.send(AgentEvent::Output {
-                            stream: "stdout".into(),
-                            text: t,
-                        });
+                AgentProvider::Claude => {
+                    for ev in parse_claude_line(&line) {
+                        match ev {
+                            ClaudeLine::Text(t) => {
+                                let _ = emit.send(AgentEvent::Output {
+                                    stream: "stdout".into(),
+                                    text: t,
+                                });
+                            }
+                            ClaudeLine::Tool { name, detail } => {
+                                let _ = emit.send(AgentEvent::Tool { name, detail });
+                            }
+                            ClaudeLine::Ended {
+                                session_id,
+                                summary,
+                            } => {
+                                *result_slot.lock().unwrap() = Some((session_id, summary));
+                            }
+                        }
                     }
-                    Some(ClaudeLine::Ended {
-                        session_id,
-                        summary,
-                    }) => {
-                        *result_slot.lock().unwrap() = Some((session_id, summary));
+                }
+                AgentProvider::Opencode => {
+                    for ev in parse_opencode_line(&line) {
+                        match ev {
+                            OpencodeLine::Text(t) => {
+                                let _ = emit.send(AgentEvent::Output {
+                                    stream: "stdout".into(),
+                                    text: t,
+                                });
+                            }
+                            OpencodeLine::Tool { name, detail } => {
+                                let _ = emit.send(AgentEvent::Tool { name, detail });
+                            }
+                            OpencodeLine::Session(id) => {
+                                let mut slot = session_slot.lock().unwrap();
+                                if slot.is_none() {
+                                    *slot = Some(id);
+                                }
+                            }
+                            OpencodeLine::Error(msg) => {
+                                let _ = emit.send(AgentEvent::Output {
+                                    stream: "stdout".into(),
+                                    text: format!("⚠ {msg}"),
+                                });
+                            }
+                        }
                     }
-                    None => {}
-                },
-                AgentProvider::Opencode | AgentProvider::Codex => {
+                }
+                AgentProvider::Codex => {
                     let _ = emit.send(AgentEvent::Output {
                         stream: "stdout".into(),
                         text: line,
@@ -669,6 +871,9 @@ fn run_agent_impl(
     }
     .to_string();
     let (session_id, summary) = cli_result.lock().unwrap().clone().unwrap_or((None, None));
+    // Claude reports its session in the terminal `result` event; opencode
+    // stamps every streamed event with the session id.
+    let session_id = session_id.or_else(|| stream_session.lock().unwrap().clone());
     let changed_files = changed_files_under(&inv.dir).unwrap_or_default();
 
     Ok(AgentRunDto {
@@ -705,10 +910,10 @@ mod tests {
     #[test]
     fn opencode_args() {
         let args = build_args(AgentProvider::Opencode, "summarize my notes", &opts(false));
-        assert_eq!(args, vec!["run", "summarize my notes"]);
+        assert_eq!(args, vec!["run", "--format", "json", "summarize my notes"]);
 
         let args = build_args(AgentProvider::Opencode, "  fix it  ", &opts(true));
-        assert_eq!(args, vec!["run", "--auto", "fix it"]);
+        assert_eq!(args, vec!["run", "--format", "json", "--auto", "fix it"]);
     }
 
     #[test]
@@ -719,14 +924,17 @@ mod tests {
             ..Default::default()
         };
         let args = build_args(AgentProvider::Opencode, "more", &opts);
-        assert_eq!(args, vec!["run", "--session", "ses_abc", "more"]);
+        assert_eq!(
+            args,
+            vec!["run", "--format", "json", "--session", "ses_abc", "more"]
+        );
 
         let continue_only = AgentRunOptions {
             continue_session: true,
             ..Default::default()
         };
         let args = build_args(AgentProvider::Opencode, "more", &continue_only);
-        assert_eq!(args, vec!["run", "--continue", "more"]);
+        assert_eq!(args, vec!["run", "--format", "json", "--continue", "more"]);
     }
 
     #[test]
@@ -740,6 +948,7 @@ mod tests {
                 "acceptEdits",
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--include-partial-messages",
                 "draft a daily note",
             ]
@@ -764,6 +973,7 @@ mod tests {
                 "bypassPermissions",
                 "--output-format",
                 "stream-json",
+                "--verbose",
                 "--include-partial-messages",
                 "draft",
             ]
@@ -788,43 +998,171 @@ mod tests {
     #[test]
     fn claude_text_events_stream() {
         let line = r#"{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Hello","partial":true}],"model":"claude-4","role":"assistant"}}"#;
-        match parse_claude_line(line) {
-            Some(ClaudeLine::Text(t)) => assert_eq!(t, "Hello"),
-            other => panic!("expected text, got {other:?}"),
-        }
+        assert_eq!(
+            parse_claude_line(line),
+            vec![ClaudeLine::Text("Hello".into())]
+        );
+    }
+
+    #[test]
+    fn claude_tool_use_becomes_a_tool_event() {
+        let line = r#"{"type":"assistant","message":{"id":"msg_2","content":[{"type":"tool_use","id":"toolu_1","name":"Edit","input":{"file_path":"/vault/notes/a.md","old_string":"x"}}],"role":"assistant"}}"#;
+        let parsed = parse_claude_line(line);
+        assert_eq!(
+            parsed,
+            vec![ClaudeLine::Tool {
+                name: "Edit".into(),
+                detail: "/vault/notes/a.md".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn claude_message_can_carry_text_and_tools() {
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Fixing it."},{"type":"tool_use","name":"Bash","input":{"command":"git status"}}],"role":"assistant"}}"#;
+        let parsed = parse_claude_line(line);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], ClaudeLine::Text("Fixing it.".into()));
+        assert_eq!(
+            parsed[1],
+            ClaudeLine::Tool {
+                name: "Bash".into(),
+                detail: "git status".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn tool_detail_truncates_long_values() {
+        let long = "a".repeat(400);
+        let input = serde_json::json!({ "command": long });
+        let detail = tool_detail(&input).expect("detail");
+        assert_eq!(detail.chars().count(), 161); // 160 + ellipsis
+        assert!(detail.ends_with('…'));
     }
 
     #[test]
     fn claude_result_event_has_session_and_summary() {
         let line = r#"{"type":"result","subtype":"success","is_error":false,"duration_ms":12400,"session_id":"abc-123","num_turns":3,"result":"success","total_files_modified":2,"total_lines_added":34,"total_lines_removed":9}"#;
-        match parse_claude_line(line) {
-            Some(ClaudeLine::Ended {
-                session_id,
-                summary,
-            }) => {
+        let parsed = parse_claude_line(line);
+        match parsed.as_slice() {
+            [
+                ClaudeLine::Ended {
+                    session_id,
+                    summary,
+                },
+            ] => {
                 assert_eq!(session_id.as_deref(), Some("abc-123"));
-                let s = summary.expect("summary");
+                let s = summary.as_deref().expect("summary");
                 assert!(s.contains("finished"), "{s}");
                 assert!(s.contains("2 files modified"), "{s}");
                 assert!(s.contains("+34/−9 lines"), "{s}");
             }
-            other => panic!("expected Ended, got {other:?}"),
+            other => panic!("expected one Ended event, got {other:?}"),
         }
     }
 
     #[test]
     fn claude_non_text_lines_ignored() {
-        assert!(parse_claude_line("not json").is_none());
+        assert!(parse_claude_line("not json").is_empty());
         assert!(
             parse_claude_line(r#"{"type":"system","subtype":"init","platform":"darwin-x64"}"#)
-                .is_none()
+                .is_empty()
         );
         assert!(
             parse_claude_line(
                 r#"{"type":"user","message":{"content":[{"type":"text","text":"hi"}]}}"#
             )
-            .is_none()
+            .is_empty()
         );
+    }
+
+    #[test]
+    fn opencode_text_event_yields_text_and_session() {
+        let line = r#"{"type":"text","timestamp":1793967852779,"sessionID":"ses_123","part":{"id":"prt_1","type":"text","text":"All done.\n","time":{"start":1,"end":2}}}"#;
+        let parsed = parse_opencode_line(line);
+        assert_eq!(
+            parsed,
+            vec![
+                OpencodeLine::Session("ses_123".into()),
+                OpencodeLine::Text("All done.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn opencode_tool_use_uses_state_title_and_strips_name_prefix() {
+        // Edit's title is "Edit <path>" — the name prefix is stripped so the
+        // panel can render "edit · <path>" without repeating the name.
+        let edit = r#"{"type":"tool_use","sessionID":"ses_1","part":{"id":"prt_2","type":"tool","tool":"edit","state":{"status":"completed","input":{"filePath":"notes/a.md"},"title":"Edit notes/a.md","metadata":{"diff":"…"}}}}"#;
+        assert_eq!(
+            parse_opencode_line(edit),
+            vec![
+                OpencodeLine::Session("ses_1".into()),
+                OpencodeLine::Tool {
+                    name: "edit".into(),
+                    detail: "notes/a.md".into(),
+                },
+            ]
+        );
+
+        // bash's title is the raw command — nothing to strip.
+        let bash = r#"{"type":"tool_use","sessionID":"ses_1","part":{"id":"prt_3","type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"ls -la"},"title":"ls -la"}}}"#;
+        assert_eq!(
+            parse_opencode_line(bash),
+            vec![
+                OpencodeLine::Session("ses_1".into()),
+                OpencodeLine::Tool {
+                    name: "bash".into(),
+                    detail: "ls -la".into(),
+                },
+            ]
+        );
+
+        // No title → fall back to the shared input-key scan.
+        let no_title = r#"{"type":"tool_use","sessionID":"ses_1","part":{"id":"prt_4","type":"tool","tool":"glob","state":{"status":"completed","input":{"pattern":"**/*.md"}}}}"#;
+        assert_eq!(
+            parse_opencode_line(no_title),
+            vec![
+                OpencodeLine::Session("ses_1".into()),
+                OpencodeLine::Tool {
+                    name: "glob".into(),
+                    detail: "**/*.md".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn opencode_error_event_surfaces_the_message() {
+        // Real shape captured from opencode 1.19.0.
+        let line = r#"{"type":"error","timestamp":1793967852779,"sessionID":"ses_x","error":{"name":"UnknownError","data":{"message":"Unexpected server error."}}}"#;
+        assert_eq!(
+            parse_opencode_line(line),
+            vec![
+                OpencodeLine::Session("ses_x".into()),
+                OpencodeLine::Error("Unexpected server error.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn opencode_uninteresting_events_only_yield_session() {
+        let step = r#"{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}"#;
+        assert_eq!(
+            parse_opencode_line(step),
+            vec![OpencodeLine::Session("ses_1".into())]
+        );
+        assert!(parse_opencode_line("not json").is_empty());
+        assert!(parse_opencode_line(r#"{"type":"step_finish"}"#).is_empty());
+    }
+
+    #[test]
+    fn strip_tool_prefix_handles_known_titles() {
+        assert_eq!(strip_tool_prefix("edit", "Edit notes/a.md"), "notes/a.md");
+        assert_eq!(strip_tool_prefix("glob", "Glob \"*.md\""), "\"*.md\"");
+        assert_eq!(strip_tool_prefix("bash", "git status"), "git status");
+        assert_eq!(strip_tool_prefix("read", "readme"), "readme"); // no delimiter after name
     }
 
     #[test]
