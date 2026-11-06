@@ -31,11 +31,12 @@ import { errorMessage } from "@/lib/ipc";
 import { pickAiProvider, runAiText, stopAi } from "@/lib/ai";
 import { readAgentProvider, type AgentProviderInfo } from "@/lib/agent";
 import {
-  captureSelection,
+  AI_ACTIONS,
   isStale,
+  makeRequest,
   normalizeSuggestion,
   planApply,
-  REWRITE_INSTRUCTION,
+  type AiAction,
 } from "@/lib/ai-selection";
 import { AiSuggestionCard, type AiPhase, type AiPhaseActive } from "./ai-suggestion";
 import { extractImages, type ImageRef, imageFiles, saveImage } from "@/lib/images";
@@ -363,6 +364,8 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
   const [ai, setAi] = useState<AiPhase>({ kind: "idle" });
   const aiSessionRef = useRef(0);
   const [selAnchor, setSelAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const lastActionRef = useRef<AiAction | null>(null);
   // Mirror for the CodeMirror update listener, which is created once and
   // would otherwise close over the first render's phase.
   const aiRef = useRef<AiPhase>(ai);
@@ -382,12 +385,16 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
     };
   };
 
-  const generate = async () => {
+  const runAction = async (action: AiAction) => {
     const view = viewRef.current;
-    if (!view || view.state.selection.main.empty) return;
+    if (!view) return;
     const { from, to } = view.state.selection.main;
-    const req = captureSelection(view.state.doc.toString(), from, to, REWRITE_INSTRUCTION);
+    // kind: "insert" presets (continue) run at the selection's end; the
+    // context is the text tail before it, so the model knows what to go on
+    // with. Select presets require a non-empty selection.
+    const req = makeRequest(view.state.doc.toString(), from, to, action);
     if (!req) return;
+    lastActionRef.current = action;
     const anchor = anchorFor(from) ?? { x: 16, y: 16 };
     // Session guard: results of a discarded request (note switch, newer
     // request) resolve into nothing at all.
@@ -409,7 +416,7 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
         dir,
         provider: provider.id,
         instruction: req.instruction,
-        context: req.original,
+        context: req.context ?? req.original,
         onChunk: (t) => {
           if (session !== aiSessionRef.current) return;
           setAi((prev) =>
@@ -422,7 +429,11 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
         setAi({ kind: "idle" });
         return;
       }
-      const suggestion = normalizeSuggestion(req.original, result.text);
+      // Insertions (empty range) keep the reply's leading whitespace —
+      // "…end. ␣Continued…" needs that space.
+      const suggestion = normalizeSuggestion(req.original, result.text, {
+        keepLeading: req.from === req.to,
+      });
       if (!suggestion) {
         setAi({
           kind: "unavailable",
@@ -472,7 +483,8 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
   const regenerateAi = () => {
     aiSessionRef.current += 1;
     setAi({ kind: "idle" });
-    void generate();
+    const action = lastActionRef.current;
+    if (action) void runAction(action);
   };
 
   const cancelAi = () => {
@@ -655,16 +667,45 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
           onClose={() => setViewer(null)}
         />
       )}
-      {/* Inline AI: affordance on selection, card anchored to the request. */}
-      {ai.kind === "idle" && selAnchor && (
+      {/* Inline AI: affordance on selection, preset menu, card anchored to
+          the request. */}
+      {ai.kind === "idle" && selAnchor && !menuOpen && (
         <button
           type="button"
           className="absolute z-20 flex h-7 items-center gap-1 rounded-md border border-border bg-[var(--panel)] px-2 text-xs text-foreground shadow hover:bg-accent"
           style={{ left: selAnchor.x, top: selAnchor.y }}
-          onClick={() => void generate()}
+          onClick={() => setMenuOpen(true)}
         >
-          <Sparkles className="size-3.5 text-primary" aria-hidden /> AI rewrite
+          <Sparkles className="size-3.5 text-primary" aria-hidden /> AI
         </button>
+      )}
+      {ai.kind === "idle" && menuOpen && selAnchor && (
+        <>
+          {/* Dismiss catcher so clicking elsewhere closes the menu. */}
+          <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+          <div
+            className="absolute z-20 min-w-40 rounded-lg border border-border bg-[var(--panel)] p-1 shadow-lg"
+            style={{ left: selAnchor.x, top: selAnchor.y }}
+            role="menu"
+            aria-label="AI actions"
+          >
+            {AI_ACTIONS.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground hover:bg-accent"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void runAction(action);
+                }}
+              >
+                <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </>
       )}
       {ai.kind !== "idle" && "anchor" in ai && (
         <div className="absolute z-20" style={{ left: ai.anchor.x, top: ai.anchor.y }}>
