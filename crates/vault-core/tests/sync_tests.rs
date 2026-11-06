@@ -314,3 +314,52 @@ fn stale_remote_head_branch_does_not_shadow_main() {
     sync::sync(&e.b).expect("b converges");
     assert_eq!(note(&e.b, "doc.md"), "ONE\ntwo\nthree\nfour\nFIVE\n");
 }
+
+/// Clone primitive: a vault created with only a remote, then pulled — the
+/// `(None, Some(r))` fast-forward path that backs `vault_clone` on mobile.
+#[test]
+fn clone_materializes_remote_content() {
+    let e = setup();
+
+    e.a.write_note("readme.md", "# hello\n").unwrap();
+    e.a.write_note("folder/notes.md", "deep\n").unwrap();
+    sync::sync(&e.a).expect("a initial push");
+    let remote = e.a.git.remote_url().unwrap().unwrap();
+
+    let c = Vault::create(&e._tmp.path().join("c"), Some(&remote)).expect("open clone target");
+    let out = vault_core::sync::clone_with(&c, None).expect("clone");
+
+    assert_eq!(out.action, "fast-forward (initial)");
+    assert_eq!(note(&c, "readme.md"), "# hello\n");
+    assert_eq!(note(&c, "folder/notes.md"), "deep\n");
+    let head = c.git.head_oid().unwrap();
+    assert_eq!(head, Some(out.head.clone().unwrap()));
+    // clone adopts the remote tip with no spurious local commit
+    assert_eq!(c.git.remote_main_oid().unwrap(), Some(out.head.unwrap()));
+}
+
+/// `git clone` of a repo with no commits succeeds (empty working tree, remote
+/// configured); `vault_clone` must match that instead of erroring on the
+/// "nothing to sync" branch.
+#[test]
+fn clone_tolerates_empty_remote() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let remote_dir = tmp.path().join("empty.git");
+    Vault::create_remote(&remote_dir).expect("create empty remote");
+    let remote = remote_dir.to_string_lossy().to_string();
+
+    let c = Vault::create(&tmp.path().join("c"), Some(&remote)).expect("open clone target");
+    let out = vault_core::sync::clone_with(&c, None).expect("clone of empty remote");
+
+    assert_eq!(out.action, "clone (empty remote)");
+    assert!(c.git.head_oid().unwrap().is_none(), "no local history");
+    assert!(
+        c.git.remote_main_oid().unwrap().is_none(),
+        "remote stays empty"
+    );
+    assert_eq!(
+        c.git.remote_url().unwrap(),
+        Some(remote),
+        "remote still configured"
+    );
+}
