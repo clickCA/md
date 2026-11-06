@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { Creds, GitState, Status, SyncResult } from "../types";
+import type { Creds, CommitInfo, GitState, HistoryEntry, Status, SyncResult } from "../types";
 import { errorMessage, isAuthError } from "../lib/ipc";
 import { type VaultFile, fileName } from "../lib/vault";
 
@@ -361,6 +361,81 @@ export function useVault(dir: string) {
     [dir],
   );
 
+  /** Path-aware history of one note (follows renames), newest first. */
+  const noteHistory = useCallback(
+    async (path: string, limit = 50): Promise<HistoryEntry[]> => {
+      try {
+        return await invoke<HistoryEntry[]>("note_history", { dir, path, limit });
+      } catch {
+        return [];
+      }
+    },
+    [dir],
+  );
+
+  /** Vault-wide commit history, newest first. */
+  const vaultHistory = useCallback(
+    async (limit = 50): Promise<CommitInfo[]> => {
+      try {
+        return await invoke<CommitInfo[]>("vault_history", { dir, limit });
+      } catch {
+        return [];
+      }
+    },
+    [dir],
+  );
+
+  /** Read-only content of one note-history entry. */
+  const noteRevision = useCallback(
+    async (entry: HistoryEntry): Promise<string | null> => {
+      try {
+        const r = await invoke<{ content: string }>("note_revision", {
+          dir,
+          path: entry.path,
+          oid: entry.oid,
+          change: entry.change,
+        });
+        return r.content;
+      } catch {
+        return null;
+      }
+    },
+    [dir],
+  );
+
+  /** Restore a note revision (resurrects deleted notes). Normal forward
+      change: lands as a pending edit, then flows through the usual sync. */
+  const restoreNote = useCallback(
+    async (entry: HistoryEntry) => {
+      await run("restore", async () => {
+        await invoke("note_restore", {
+          dir,
+          path: entry.path,
+          oid: entry.oid,
+          change: entry.change,
+        });
+        dirtyRef.current.delete(entry.path);
+        // Restored (possibly resurrected) notes re-enter the file tree.
+        await refresh();
+        scheduleAutoSync();
+      });
+    },
+    [dir, run, refresh, scheduleAutoSync],
+  );
+
+  /** Vault-level snapshot restore: every note present at the revision is
+      written back; later notes stay. Also a normal forward change. */
+  const restoreSnapshot = useCallback(
+    async (oid: string) => {
+      await run("restore snapshot", async () => {
+        await invoke("vault_restore", { dir, oid });
+        await refresh();
+        scheduleAutoSync();
+      });
+    },
+    [dir, run, refresh, scheduleAutoSync],
+  );
+
   const onSignIn = useCallback(
     (c: Creds) => {
       setCreds(c);
@@ -397,6 +472,11 @@ export function useVault(dir: string) {
     syncNow,
     gitAction,
     search,
+    noteHistory,
+    vaultHistory,
+    noteRevision,
+    restoreNote,
+    restoreSnapshot,
     refresh,
     run,
     autoSync,

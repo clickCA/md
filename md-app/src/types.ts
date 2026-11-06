@@ -55,3 +55,24 @@ export interface VaultInfo {
   remoteUrl: string | null;
   noteCount: number | null;
 }
+
+/** One entry of a note's history (path-aware, rename-following). */
+export interface HistoryEntry {
+  oid: string;
+  message: string;
+  author: string;
+  /** Commit time, seconds since the Unix epoch. */
+  time: number;
+  /** How the revision changed the note. */
+  change: "added" | "modified" | "deleted";
+  /** Path the note had at this revision (differs after a rename). */
+  path: string;
+}
+
+/** A commit in the vault-wide history. */
+export interface CommitInfo {
+  oid: string;
+  message: string;
+  author: string;
+  time: number;
+}

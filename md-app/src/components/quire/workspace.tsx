@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { FilePlus, FolderOpen } from "lucide-react";
 import type { Vault } from "@/hooks/useVault";
+import type { HistoryEntry } from "@/types";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
 import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
@@ -14,6 +15,7 @@ import { Inspector } from "./inspector";
 import { MarkdownEditor, type EditorHandle } from "./note-editor";
 import { MarkdownPreview } from "./note-preview";
 import { NoteHeader } from "./note-header";
+import { RevisionViewer } from "./revision-viewer";
 import { SearchPanel } from "./search-panel";
 import { Sidebar, type SidebarProps } from "./sidebar";
 import Modal from "../ui/Modal";
@@ -72,6 +74,9 @@ export function Workspace({
   // Note whose uncommitted changes are shown in the main area (from the
   // source-control panel); non-null replaces the editor with the diff viewer.
   const [diffPath, setDiffPath] = useState<string | null>(null);
+  // Revision opened read-only from the source-control history section;
+  // non-null replaces the editor with the revision viewer.
+  const [revision, setRevision] = useState<{ entry: HistoryEntry; content: string } | null>(null);
   // Auto-collapses below 900px so a wide sidebar can never squeeze the
   // editor; manual toggles record the preference that gets restored.
   const {
@@ -156,13 +161,30 @@ export function Workspace({
   );
   const openNote = (path: string) => {
     flush();
+    setRevision(null);
     open(path);
     setDrawerOpen(false);
   };
   const showDiff = (path: string) => {
     flush();
+    setRevision(null);
     setDiffPath(path);
     setDrawerOpen(false);
+  };
+  /** Open a history revision read-only in the main area. */
+  const showRevision = async (entry: HistoryEntry) => {
+    flush();
+    const content = await vault.noteRevision(entry);
+    if (content !== null) {
+      setDiffPath(null);
+      setRevision({ entry, content });
+      setDrawerOpen(false);
+    }
+  };
+  /** Restore a revision (normal forward change), then close the viewer. */
+  const restoreRevision = async (entry: HistoryEntry) => {
+    await vault.restoreNote(entry);
+    setRevision(null);
   };
   const openFromDiff = (path: string) => {
     setDiffPath(null);
@@ -409,7 +431,15 @@ export function Workspace({
           sync={sync}
           lastRun={status?.lastRun ?? null}
           lastSyncError={vault.lastSyncError}
-          onOpen={openNote}
+          activePath={active}
+          loadNoteHistory={vault.noteHistory}
+          loadVaultHistory={vault.vaultHistory}
+          onShowRevision={(entry) => void showRevision(entry)}
+          onRestoreSnapshot={(oid) => void vault.restoreSnapshot(oid)}
+          onOpen={(path) => {
+            setRevision(null);
+            openNote(path);
+          }}
           onShowDiff={showDiff}
           diffPath={diffPath}
           onSync={() => void syncNow()}
@@ -475,6 +505,14 @@ export function Workspace({
                 file={diffFile}
                 onOpenNote={openFromDiff}
                 onClose={() => setDiffPath(null)}
+              />
+            ) : revision ? (
+              <RevisionViewer
+                key={`${revision.entry.oid}-${revision.entry.path}`}
+                entry={revision.entry}
+                content={revision.content}
+                onRestore={(entry) => void restoreRevision(entry)}
+                onClose={() => setRevision(null)}
               />
             ) : activeFile && editorProps ? (
               <div className="flex min-h-0 flex-1">

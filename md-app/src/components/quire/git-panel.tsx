@@ -4,12 +4,14 @@ import {
   ArrowUp,
   GitBranch,
   GitCommitHorizontal,
+  History,
   PenLine,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   Upload,
 } from "lucide-react";
-import type { Journal } from "@/types";
+import type { CommitInfo, HistoryEntry, Journal } from "@/types";
 import { type VaultFile, eventLabel, fileName, relTime, statusOf } from "@/lib/vault";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
@@ -25,6 +27,14 @@ export type GitPanelProps = {
   sync: "idle" | "pulling" | "pushing" | "syncing";
   lastRun: Journal | null;
   lastSyncError: string | null;
+  /** Note open in the editor; the note-scoped history follows it. */
+  activePath: string | null;
+  loadNoteHistory: (path: string) => Promise<HistoryEntry[]>;
+  loadVaultHistory: () => Promise<CommitInfo[]>;
+  /** Open a revision read-only in the main area. */
+  onShowRevision: (entry: HistoryEntry) => void;
+  /** Vault-level snapshot restore (two-step confirm in the panel). */
+  onRestoreSnapshot: (oid: string) => void;
   onOpen: (path: string) => void;
   /** Open the note's uncommitted changes in the diff viewer. */
   onShowDiff: (path: string) => void;
@@ -48,6 +58,11 @@ export function GitPanel({
   sync,
   lastRun,
   lastSyncError,
+  activePath,
+  loadNoteHistory,
+  loadVaultHistory,
+  onShowRevision,
+  onRestoreSnapshot,
   onOpen,
   onShowDiff,
   diffPath,
@@ -162,6 +177,18 @@ export function GitPanel({
               <span className="font-mono text-[11px] text-muted-foreground">{changes.length}</span>
             )
           }
+        />
+
+        {/* Keyed on the active note so switching notes resets the scoped
+            history instead of showing a stale note's revisions. */}
+        <HistorySection
+          key={activePath ?? "none"}
+          activePath={activePath}
+          loadNoteHistory={loadNoteHistory}
+          loadVaultHistory={loadVaultHistory}
+          onShowRevision={onShowRevision}
+          onRestoreSnapshot={onRestoreSnapshot}
+          disabled={busy}
         />
 
         <section className="mt-3 px-1.5">
@@ -355,5 +382,217 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+/** History browse + restore (plan P1 "History"): path-aware note history
+    and the vault-wide log. Loading is event-driven (open / switch scope) —
+    no effects, so switching notes resets via the section key. */
+function HistorySection({
+  activePath,
+  loadNoteHistory,
+  loadVaultHistory,
+  onShowRevision,
+  onRestoreSnapshot,
+  disabled,
+}: {
+  activePath: string | null;
+  loadNoteHistory: (path: string) => Promise<HistoryEntry[]>;
+  loadVaultHistory: () => Promise<CommitInfo[]>;
+  onShowRevision: (entry: HistoryEntry) => void;
+  onRestoreSnapshot: (oid: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<"note" | "vault">("note");
+  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [commits, setCommits] = useState<CommitInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [confirmSnapshot, setConfirmSnapshot] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (forScope: "note" | "vault") => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (forScope === "note") {
+        if (!activePath) return;
+        setEntries(await loadNoteHistory(activePath));
+      } else {
+        setCommits(await loadVaultHistory());
+      }
+    } catch {
+      setError("Could not load history.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggle = (next: "note" | "vault") => {
+    if (next === "note" && !activePath) return;
+    setScope(next);
+    setOpen(true);
+    void load(next);
+  };
+
+  return (
+    <section className="mt-3 px-1.5">
+      <div className="flex h-6 items-center justify-between px-2">
+        <h3 className="flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+          <History className="size-3" aria-hidden />
+          History
+        </h3>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => toggle("note")}
+            disabled={!activePath}
+            title={activePath ? `History of ${activePath}` : "open a note to browse its history"}
+            className={cn(
+              "h-5 rounded px-1.5 text-[10px] transition-colors",
+              open && scope === "note"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              !activePath && "cursor-not-allowed opacity-40",
+            )}
+          >
+            Note
+          </button>
+          <button
+            type="button"
+            onClick={() => toggle("vault")}
+            disabled={open && scope === "vault"}
+            className={cn(
+              "h-5 rounded px-1.5 text-[10px] transition-colors",
+              open && scope === "vault"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            Vault
+          </button>
+          <IconButton
+            label={open ? "Hide history" : "Show history"}
+            onClick={() => {
+              const next = !open;
+              setOpen(next);
+              if (next && entries.length === 0 && commits.length === 0) void load(scope);
+            }}
+            disabled={disabled || (scope === "note" && !activePath)}
+          >
+            <span
+              className={cn(
+                "font-mono text-[11px] text-muted-foreground transition-transform",
+                open && "rotate-90",
+              )}
+              aria-hidden
+            >
+              ▸
+            </span>
+          </IconButton>
+        </div>
+      </div>
+
+      {open &&
+        (scope === "note" && !activePath ? (
+          <p className="px-2 py-1 text-xs text-muted-foreground">
+            Open a note to browse its history.
+          </p>
+        ) : loading ? (
+          <p className="px-2 py-1 text-xs text-muted-foreground" role="status">
+            Loading…
+          </p>
+        ) : error ? (
+          <p className="px-2 py-1 text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        ) : scope === "note" ? (
+          entries.length === 0 ? (
+            <p className="px-2 py-1 text-xs text-muted-foreground">No committed history yet.</p>
+          ) : (
+            <ol>
+              {entries.map((e) => (
+                <li key={`${e.oid}-${e.path}-${e.change}`}>
+                  <button
+                    type="button"
+                    onClick={() => onShowRevision(e)}
+                    title={`View revision of ${e.message}`}
+                    className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent"
+                  >
+                    <span
+                      className={cn(
+                        "w-3 shrink-0 text-center font-mono text-[10px]",
+                        e.change === "deleted"
+                          ? "text-destructive"
+                          : e.change === "added"
+                            ? "text-added"
+                            : "text-modified",
+                      )}
+                    >
+                      {e.change === "added" ? "A" : e.change === "deleted" ? "D" : "M"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                      {e.message}
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {relTime(String(e.time))}
+                    </span>
+                    <span className="w-7 shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+                      {e.oid.slice(0, 7)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )
+        ) : (
+          <div>
+            {commits.length === 0 ? (
+              <p className="px-2 py-1 text-xs text-muted-foreground">No committed history yet.</p>
+            ) : (
+              <ol>
+                {commits.map((c) => (
+                  <li
+                    key={c.oid}
+                    className="flex h-7 items-center gap-2 rounded-md px-2 hover:bg-sidebar-accent"
+                  >
+                    <GitCommitHorizontal
+                      className="size-3 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+                      {c.message}
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {relTime(String(c.time))}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Restore snapshot ${c.oid.slice(0, 7)}`}
+                      title="Write every note present at this revision back (later notes stay)"
+                      onClick={() => {
+                        if (confirmSnapshot !== c.oid) {
+                          setConfirmSnapshot(c.oid);
+                          return;
+                        }
+                        setConfirmSnapshot(null);
+                        onRestoreSnapshot(c.oid);
+                      }}
+                      className={cn(
+                        "flex size-6 shrink-0 items-center justify-center rounded",
+                        confirmSnapshot === c.oid
+                          ? "bg-destructive text-destructive-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                    >
+                      <RotateCcw className="size-3.5" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        ))}
+    </section>
   );
 }
