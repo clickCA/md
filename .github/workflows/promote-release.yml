@@ -1,0 +1,58 @@
+# Merge main → release on demand: Actions tab → "Promote to release",
+# or `gh workflow run promote-release.yml`.
+#
+# Releases are cut FROM the release branch: after promoting, tag it locally
+#   git fetch origin
+#   git tag vX.Y.Z origin/release
+#   git push origin vX.Y.Z
+# and the Release workflow builds every platform from that tag.
+#
+# Why tag locally? Tag pushes made with GITHUB_TOKEN deliberately do NOT
+# trigger other workflows (GitHub's recursion guard) — a tag pushed by this
+# workflow would silently never build. See docs/RELEASING.md.
+
+name: Promote to release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: main → release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Configure release bot
+        run: |
+          git config user.name "md-release-bot"
+          git config user.email "md@localhost"
+
+      - name: Checkout release (create from main on first run)
+        run: |
+          if git ls-remote --exit-code --heads origin release >/dev/null 2>&1; then
+            git checkout -B release origin/release
+          else
+            git checkout -B release origin/main
+            echo "release branch created from main"
+          fi
+
+      - name: Merge main
+        run: |
+          if git merge --ff-only origin/main 2>/dev/null; then
+            echo "fast-forwarded release to main"
+          else
+            git merge --no-ff origin/main -m "Promote main → release"
+          fi
+
+      - name: Push release
+        run: git push origin release
