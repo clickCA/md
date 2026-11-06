@@ -6,10 +6,12 @@ import type { HistoryEntry } from "@/types";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
 import { useAiNote } from "@/hooks/useAiNote";
+import { useAiAsk } from "@/hooks/useAiAsk";
 import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
 import type { BrokenLink } from "@/types";
 import { AgentPanel } from "./agent-panel";
 import { AiNoteModal } from "./ai-note-modal";
+import { AiAskModal } from "./ai-ask-modal";
 import { CommandPalette, type PaletteCommand } from "./command-palette";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
@@ -97,6 +99,7 @@ export function Workspace({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aiNoteOpen, setAiNoteOpen] = useState(false);
+  const [aiAskOpen, setAiAskOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
@@ -179,6 +182,10 @@ export function Workspace({
     () => (diffPath ? (files.find((f) => f.path === diffPath) ?? null) : null),
     [diffPath, files],
   );
+  // Ask-your-notes: retrieval Q&A over the vault (FTS5 excerpts + the
+  // inline seam); answers cite their sources and open them on click.
+  const aiAsk = useAiAsk({ dir: vault.dir });
+
   const openNote = (path: string) => {
     flush();
     setRevision(null);
@@ -414,6 +421,11 @@ export function Workspace({
       label: "AI: Create a note from a description",
       run: () => setAiNoteOpen(true),
     },
+    {
+      id: "ai-ask",
+      label: "AI: Ask your notes",
+      run: () => setAiAskOpen(true),
+    },
     { id: "sync", label: "Sync now", run: () => void syncNow() },
     { id: "update", label: "Check for updates", run: () => void onCheckUpdates() },
     { id: "pull", label: "Git: Pull (take remote)", run: () => void gitAction("take-remote") },
@@ -631,6 +643,24 @@ export function Workspace({
           onDismiss={aiNote.dismiss}
           onClose={() => {
             if (aiNote.phase.kind !== "running") setAiNoteOpen(false);
+          }}
+        />
+      )}
+
+      {aiAskOpen && (
+        <AiAskModal
+          phase={aiAsk.phase}
+          providerLabel={aiAsk.provider}
+          files={files}
+          onAsk={(q) => void aiAsk.ask(q)}
+          onStop={() => void aiAsk.stop()}
+          onDismiss={aiAsk.dismiss}
+          onClose={() => {
+            if (aiAsk.phase.kind !== "running") setAiAskOpen(false);
+          }}
+          onOpenCitation={(path) => {
+            setAiAskOpen(false);
+            openNote(path);
           }}
         />
       )}

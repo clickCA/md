@@ -261,12 +261,18 @@ config; Quire never holds API keys.
 | Command   | Arguments                                            | Returns                                                       |
 | --------- | ---------------------------------------------------- | ------------------------------------------------------------- |
 | `ai_text` | `dir`, `provider`, `instruction`, `options?`, `onEvent` | `AiText` — streams `AiEvent`s over `onEvent`, resolves on completion |
+| `ai_ask`  | `dir`, `provider`, `question`, `options?`, `onEvent`  | `AiText` — retrieval Q&A: FTS5 top-k excerpts fenced as data; the answer cites them |
 | `ai_stop` | —                                                    | `void` — cancel the in-flight run (kills the child)            |
 
 `AiEvent = { kind: "output", stream: "stdout" | "stderr", text }`
 `AiTextOptions = { context? }` — optional note content, fenced off as data.
 `AiText = { status: "done" | "cancelled" | "timeout", text, durationMs }`
 
+- `ai_ask` options: `{ limit? }` — max excerpts retrieved from the vault (default 8,
+  clamped 1..=16). Retrieval runs up front over the FTS5 index; excerpts are fenced as
+  data and the answer is instructed to cite claims inline as `[note-path:line]` and to
+  say so plainly when the excerpts do not contain the answer. Same invariants — the
+  command never writes anything.
 - **Tool-disabled posture** (pinned by tests): Claude `-p` with **no**
   permission flag — non-interactive runs cannot prompt, so Edit/Write/Bash are
   auto-denied (text-only by construction); opencode `run` without `--auto`;
