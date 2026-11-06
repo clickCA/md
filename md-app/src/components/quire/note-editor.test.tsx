@@ -22,6 +22,80 @@ const file: VaultFile = {
 const raf = () =>
   new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
+describe("MarkdownEditor inline-AI handle", () => {
+  it("exposes the selection with its document version, and replaces by range", async () => {
+    const ref = { current: null as null | import("./note-editor").EditorHandle };
+    const onSelection = vi.fn();
+    const changes: string[] = [];
+    await render(
+      <MarkdownEditor
+        ref={ref}
+        file={file}
+        dir="/vault"
+        onChange={(c) => changes.push(c)}
+        onCursor={noop}
+        onSelection={onSelection}
+        dark={false}
+      />,
+    );
+    await raf();
+    const handle = ref.current;
+    expect(handle).not.toBeNull();
+    const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+
+    // No selection yet.
+    expect(handle!.selection()).toBeNull();
+    const v0 = handle!.version();
+
+    // Select "First line" (offsets 0..10).
+    view.dispatch({ selection: { anchor: 0, head: 10 } });
+    await raf();
+
+    expect(onSelection).toHaveBeenLastCalledWith(true);
+    const sel = handle!.selection();
+    expect(sel).not.toBeNull();
+    expect(sel!.text).toBe("First line");
+    expect(sel!.from).toBe(0);
+    expect(sel!.to).toBe(10);
+    const vSel = sel!.version;
+    expect(vSel).toBeGreaterThanOrEqual(v0);
+
+    // Accept path: replace the selected range; version bumps, onChange fires.
+    handle!.replaceRange(sel!.from, sel!.to, "Replaced");
+    await raf();
+    expect(changes.at(-1)).toBe("Replaced\nSecond line\n");
+    expect(handle!.version()).toBeGreaterThan(vSel);
+  });
+
+  it("reports when the selection collapses", async () => {
+    const ref = { current: null as null | import("./note-editor").EditorHandle };
+    const onSelection = vi.fn();
+    await render(
+      <MarkdownEditor
+        ref={ref}
+        file={file}
+        dir="/vault"
+        onChange={noop}
+        onCursor={noop}
+        onSelection={onSelection}
+        dark={false}
+      />,
+    );
+    await raf();
+    const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+
+    view.dispatch({ selection: { anchor: 12, head: 23 } });
+    await raf();
+    expect(onSelection).toHaveBeenLastCalledWith(true);
+
+    // Collapse to a caret.
+    view.dispatch({ selection: { anchor: 12 } });
+    await raf();
+    expect(onSelection).toHaveBeenLastCalledWith(false);
+    expect(ref.current!.selection()).toBeNull();
+  });
+});
+
 describe("MarkdownEditor click hitboxes", () => {
   const content = [
     "# Big heading", // 1

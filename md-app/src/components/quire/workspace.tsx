@@ -4,8 +4,10 @@ import { FilePlus, FolderOpen } from "lucide-react";
 import type { Vault } from "@/hooks/useVault";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
+import { useInlineAi } from "@/hooks/useInlineAi";
 import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
 import { AgentPanel } from "./agent-panel";
+import { InlineAiPanel } from "./inline-ai-panel";
 import { CommandPalette, type PaletteCommand } from "./command-palette";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
@@ -92,6 +94,25 @@ export function Workspace({
   const agent = useAgent(vault.dir, (changed) => {
     if (changed.length > 0) void vault.refresh();
   });
+
+  // Inline AI: one-selection operations previewed as a diff and applied only
+  // on Accept (docs/adr/2026-11-06-inline-ai-surface.md). The editor exposes
+  // the selection + document version; a proposal whose version moved is
+  // stale and cannot be applied.
+  const [hasSelection, setHasSelection] = useState(false);
+  const inline = useInlineAi({
+    dir: vault.dir,
+    getSelection: () => editorRef.current?.selection() ?? null,
+    getVersion: () => editorRef.current?.version() ?? -1,
+    apply: (from, to, text) => editorRef.current?.replaceRange(from, to, text),
+  });
+  const activePath = activeFile?.path ?? null;
+  useEffect(() => {
+    // Selection lives in the (remounted) editor; a new file starts clean.
+    setHasSelection(false);
+    inline.reset();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reset is stable
+  }, [activePath]);
   const agentState = {
     providers: agent.providers,
     selected: agent.selected,
@@ -355,6 +376,7 @@ export function Workspace({
         onChange,
         onCursor: noop,
         onOpenLink: openByTitle,
+        onSelection: setHasSelection,
       }
     : null;
 
@@ -488,6 +510,20 @@ export function Workspace({
                       dir={vault.dir}
                       onOpenLink={openByTitle}
                       onToggleTask={toggleTaskLine}
+                    />
+                  )}
+                  {mode === "edit" && (
+                    <InlineAiPanel
+                      phase={inline.phase}
+                      stale={inline.stale}
+                      providerLabel={inline.provider?.label ?? null}
+                      hasSelection={hasSelection}
+                      onRun={(op) => void inline.run(op)}
+                      onAccept={inline.accept}
+                      onReject={inline.reject}
+                      onRegenerate={() => void inline.regenerate()}
+                      onStop={() => void inline.stop()}
+                      onDismiss={inline.reject}
                     />
                   )}
                   <div

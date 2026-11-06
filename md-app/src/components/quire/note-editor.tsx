@@ -31,7 +31,19 @@ import { mdLivePreview } from "./live-preview";
 import { INLINE_TITLE_CLASS } from "./prose-classes";
 import { tableKeymap } from "./table-editing";
 
-export type EditorHandle = { jumpTo: (line: number) => void };
+export type EditorSelection = { text: string; from: number; to: number; version: number };
+
+export type EditorHandle = {
+  jumpTo: (line: number) => void;
+  /** The current non-empty selection, or null. `version` is the document
+      version the selection was read at (inline-AI guard). */
+  selection: () => EditorSelection | null;
+  /** Monotonic document version — bumped on every doc change, including
+      external adoptions. Cheap, so the inline-AI panel can poll it. */
+  version: () => number;
+  /** Replace [from, to) with text — the inline-AI Accept path. */
+  replaceRange: (from: number, to: number, text: string) => void;
+};
 
 const externalHref = /^(https?:|data:|blob:|asset:)/i;
 
@@ -78,6 +90,8 @@ type Props = {
   dark: boolean;
   /** Ctrl/Cmd+click on a [[wikilink]] opens that note (same as read mode). */
   onOpenLink?: (title: string) => void;
+  /** Whether the editor currently holds a non-empty selection (inline AI). */
+  onSelection?: (hasText: boolean) => void;
 };
 
 /* ── markdown + generic code tokens, wired to the app syntax palette ─── */
@@ -319,14 +333,15 @@ function makeTheme(dark: boolean) {
 const themeCompartment = new Compartment();
 
 export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownEditor(
-  { file, dir, onChange, onCursor, onOpenLink, dark },
+  { file, dir, onChange, onCursor, onOpenLink, dark, onSelection },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const callbacks = useRef({ dir, onChange, onCursor, onOpenLink });
+  const docVersion = useRef(0);
+  const callbacks = useRef({ dir, onChange, onCursor, onOpenLink, onSelection });
   useEffect(() => {
-    callbacks.current = { dir, onChange, onCursor, onOpenLink };
+    callbacks.current = { dir, onChange, onCursor, onOpenLink, onSelection };
   });
 
   // Full-screen image viewer, opened by clicking a rendered image. The
@@ -349,6 +364,28 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
       const target = Math.min(Math.max(line, 0), view.state.doc.lines - 1);
       const info = view.state.doc.line(target + 1);
       view.dispatch({ selection: { anchor: info.from }, scrollIntoView: true });
+      view.focus();
+    },
+    selection: () => {
+      const view = viewRef.current;
+      if (!view) return null;
+      const { from, to } = view.state.selection.main;
+      if (from === to) return null;
+      return {
+        text: view.state.doc.sliceString(from, to),
+        from,
+        to,
+        version: docVersion.current,
+      };
+    },
+    version: () => docVersion.current,
+    replaceRange: (from, to, text) => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({
+        changes: { from, to, insert: text },
+        userEvent: "input.inline-ai",
+      });
       view.focus();
     },
   }));
@@ -446,7 +483,14 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
             ]),
           ),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
+            if (update.docChanged) {
+              docVersion.current += 1;
+              callbacks.current.onChange(update.state.doc.toString());
+            }
+            if (update.selectionSet || update.docChanged) {
+              const { from, to } = update.state.selection.main;
+              callbacks.current.onSelection?.(from !== to);
+            }
             if (update.selectionSet) {
               const head = update.state.selection.main.head;
               const pos = update.state.doc.lineAt(head);
