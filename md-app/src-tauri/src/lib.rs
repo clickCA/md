@@ -27,6 +27,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Auto-update + relaunch (see docs/adr/2026-11-06-auto-update.md):
+        // check/install from the JS plugin use the endpoints + pubkey that
+        // live in tauri.conf.json (plugins.updater).
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::agent::AgentState::default())
         .setup(|app| {
             // macOS routes Cmd+C/X/V/A into the webview through the responder

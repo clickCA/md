@@ -185,10 +185,10 @@ The AI agent panel runs a coding-agent CLI against the vault folder. This is the
 1. All cross-boundary DTOs are camelCase and defined once per side
    (`commands/dto.rs` ⇄ `src/types.ts`).
 2. The UI never touches the filesystem or Git directly — every effect goes through a
-   command listed here (Tauri plugins for dialogs/opener/clipboard-manager are the only
-   exceptions). The agent commands spawn the user's *own* coding-agent CLI as an external
-   subprocess (documented in its ADR) — the single deliberate exception, scoped to that
-   feature.
+   command listed here (Tauri plugins for dialogs/opener/clipboard-manager/updater/process
+   are the only exceptions). The agent commands spawn the user's *own* coding-agent CLI as an
+   external subprocess (documented in its ADR) — the single deliberate exception, scoped to
+   that feature.
 3. `vault-core` knows nothing about Tauri; the command layer is the only adapter.
 4. Adding a command: implement it in the matching `commands/*.rs` module, register it
    in `lib.rs`, document it here, and cover new behavior with tests where practical.

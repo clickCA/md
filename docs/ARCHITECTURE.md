@@ -48,9 +48,9 @@ vault-core (crates/)           Rust engine: knows nothing about Tauri
 1. `vault-core` must not depend on Tauri, React, or anything UI — it is buildable and
    testable headlessly (`cargo test -p vault-core`), which keeps mobile ports possible.
 2. The UI never touches the filesystem or Git directly; every effect crosses
-   `commands/` (Tauri dialog/opener plugins are the only exceptions). The agent
-   feature (`commands/agent.rs`) is the single deliberate exception: it spawns the
-   user's own coding-agent CLI as an external subprocess (see
+   `commands/` (Tauri dialog/opener/clipboard-manager/updater/process plugins are the
+   only exceptions). The agent feature (`commands/agent.rs`) is the single deliberate
+   exception: it spawns the user's own coding-agent CLI as an external subprocess (see
    `docs/adr/2026-11-06-coding-agent-panel.md`).
 3. Every command, DTO field, and error code is part of the UI contract — documented in
    `docs/api.md`; rename in lockstep or not at all.

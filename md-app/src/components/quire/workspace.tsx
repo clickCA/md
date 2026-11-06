@@ -29,6 +29,7 @@ const today = () => {
 type Props = {
   vault: Vault;
   dark: boolean;
+  onCheckUpdates: () => void;
   onToggleTheme: () => void;
   onOpenFolder: () => void;
   onOpenSettings: () => void;
@@ -38,6 +39,7 @@ type Props = {
 export function Workspace({
   vault,
   dark,
+  onCheckUpdates,
   onToggleTheme,
   onOpenFolder,
   onOpenSettings,
@@ -339,6 +341,7 @@ export function Workspace({
       run: () => setAgentOpen((o) => !o),
     },
     { id: "sync", label: "Sync now", run: () => void syncNow() },
+    { id: "update", label: "Check for updates", run: () => void onCheckUpdates() },
     { id: "pull", label: "Git: Pull (take remote)", run: () => void gitAction("take-remote") },
     { id: "push", label: "Git: Push", run: () => void gitAction("push") },
     { id: "scm", label: "Show sync panel", hint: "Ctrl Shift G", run: () => showPanel("git") },
