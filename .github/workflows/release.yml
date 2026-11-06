@@ -75,6 +75,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Sign the updater artifacts (createUpdaterArtifacts in
+          # tauri.conf.json). The private key is the one matching the
+          # `plugins.updater.pubkey` value — see docs/RELEASING.md (Auto-update).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key is generated without a password (see RELEASING.md)
         with:
           # the pushed tag decides the release — never derive it from the app
           # version (v__VERSION__), so pre-release tags like v0.1.0-alpha.1
@@ -83,5 +88,8 @@ jobs:
           releaseName: "md ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: true
-          includeUpdaterJson: false
+          # Upload latest.json + .sig files so the updater plugin can find
+          # signed Windows/macOS bundles (Linux deb/rpm stay on the pacman
+          # repo; AppImage gets a signature as a bonus).
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
