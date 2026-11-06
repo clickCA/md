@@ -559,7 +559,7 @@ pub struct AgentProviderDto {
     pub install_hint: String,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AgentEvent {
     /// One chunk of output (a raw CLI line, or a normalized assistant text
@@ -677,7 +677,8 @@ pub async fn agent_run(
         dir: dir_p,
     };
 
-    let result = blocking(move || run_agent_impl(invocation, cancel, child, on_event)).await;
+    let result =
+        blocking(move || run_agent_impl(invocation, cancel, child, on_event, PIPE_WAIT_CAP)).await;
 
     *state.active.lock().unwrap() = None;
     result
@@ -698,14 +699,21 @@ pub async fn agent_stop(state: State<'_, AgentState>) -> Result<(), AppError> {
     Ok(())
 }
 
+/// How long to wait for each output pipe to close before force-killing the
+/// child. Two pipes ⇒ at most twice this in the worst case. A named const so
+/// tests can drive the identical path with a much shorter cap.
+const PIPE_WAIT_CAP: Duration = Duration::from_secs(60);
+
 /// The process part of a run — pure enough to exercise with a fake CLI in
 /// tests. Spawns, streams both pipes to `on_event`, watches `cancel`, reaps
-/// the child, and reports git changes afterwards.
+/// the child, and reports git changes afterwards. `pipe_wait` is the per-pipe
+/// completion cap (60 s in production; see [`PIPE_WAIT_CAP`]).
 fn run_agent_impl(
     inv: AgentInvocation,
     cancel: Arc<AtomicBool>,
     child_slot: Arc<Mutex<Option<Child>>>,
     on_event: Channel<AgentEvent>,
+    pipe_wait: Duration,
 ) -> Result<AgentRunDto, AppError> {
     let start = Instant::now();
     let mut cmd = Command::new(&inv.binary);
@@ -846,28 +854,36 @@ fn run_agent_impl(
     // Drop the sender clones so the channel closes when both readers finish.
     drop(done_tx);
 
-    // Wait for both pipes to close. The 60 s cap is a safe net: if a child
-    // hangs with an open pipe and no cancel, force-kill instead of blocking
-    // the command forever.
-    let _ = done_rx.recv_timeout(Duration::from_secs(60));
-    let _ = done_rx.recv_timeout(Duration::from_secs(60));
+    // Wait for both pipes to close. The per-pipe cap is a safe net: if a
+    // child hangs with an open pipe and no cancel, force-kill instead of
+    // blocking the command forever.
+    let _ = done_rx.recv_timeout(pipe_wait);
+    let _ = done_rx.recv_timeout(pipe_wait);
     monitor_stop.store(true, Ordering::SeqCst);
     if let Some(c) = child_slot.lock().unwrap().as_mut() {
         let _ = c.kill(); // no-op if already exited
     }
 
-    let _ = child_slot
-        .lock()
-        .unwrap()
-        .as_mut()
-        .map(|c| c.wait().map(|s| s.code()).ok().flatten());
     let _ = stdout_reader.join();
     let _ = stderr_reader.join();
 
+    // Cancel wins over the exit code: a user-requested stop is a cancel even
+    // though the killed child did not exit cleanly. Anything else that did
+    // not exit successfully — non-zero code, signal, or our own force-kill —
+    // is a failed run, not a done one; the CLI's stderr is already in the
+    // stream for the panel to show.
+    let exit_ok = child_slot
+        .lock()
+        .unwrap()
+        .as_mut()
+        .and_then(|c| c.wait().ok())
+        .is_some_and(|s| s.success());
     let status = if cancel.load(Ordering::SeqCst) {
         "cancelled"
-    } else {
+    } else if exit_ok {
         "done"
+    } else {
+        "error"
     }
     .to_string();
     let (session_id, summary) = cli_result.lock().unwrap().clone().unwrap_or((None, None));
@@ -1206,5 +1222,218 @@ mod tests {
     fn split_path_ignores_blanks() {
         let parts = split_path("/a::/b:/c");
         assert_eq!(parts, vec!["/a", "/b", "/c"]);
+    }
+
+    /// The real process loop driven by fake CLI scripts: failure, timeout,
+    /// and streaming behavior that the pure-function tests above cannot pin.
+    /// Unix-only: `/bin/sh`, PIDs, and signals.
+    #[cfg(unix)]
+    mod process {
+        use super::*;
+        use std::os::unix::fs::PermissionsExt;
+        use tauri::ipc::InvokeResponseBody;
+
+        /// Write an executable `/bin/sh` script into `dir`.
+        fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write script");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod +x");
+            path
+        }
+
+        /// A scratch dir unique per test (tests share one process, hence the
+        /// name + pid suffix).
+        fn temp_case(name: &str) -> PathBuf {
+            let dir = std::env::temp_dir()
+                .join(format!("quire-agent-proc-{name}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).expect("mkdir");
+            dir
+        }
+
+        /// A channel that records every streamed event for assertions.
+        fn harness() -> (Channel<AgentEvent>, Arc<Mutex<Vec<AgentEvent>>>) {
+            let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::default();
+            let slot = events.clone();
+            let channel = Channel::new(move |body: InvokeResponseBody| {
+                if let InvokeResponseBody::Json(s) = body
+                    && let Ok(e) = serde_json::from_str::<AgentEvent>(&s)
+                {
+                    slot.lock().unwrap().push(e);
+                }
+                Ok(())
+            });
+            (channel, events)
+        }
+
+        fn invocation(binary: PathBuf, dir: &Path, args: Vec<String>) -> AgentInvocation {
+            // Codex on purpose: its stdout is streamed as raw lines, so the
+            // fake CLIs below exercise the run loop itself rather than any
+            // provider's JSONL parsing (that has its own unit tests).
+            AgentInvocation {
+                provider: AgentProvider::Codex,
+                binary,
+                args,
+                dir: dir.to_path_buf(),
+            }
+        }
+
+        /// `(stream, text)` pairs, in arrival order.
+        fn streamed(events: &Mutex<Vec<AgentEvent>>) -> Vec<(String, String)> {
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|e| match e {
+                    AgentEvent::Output { stream, text } => Some((stream.clone(), text.clone())),
+                    AgentEvent::Tool { .. } => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn zero_exit_reports_done_and_streams_both_pipes() {
+            let dir = temp_case("ok");
+            let script = write_script(&dir, "cli", "echo out-line; echo err-line >&2");
+            let (channel, events) = harness();
+
+            let out = run_agent_impl(
+                invocation(script, &dir, vec![]),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(Mutex::new(None)),
+                channel,
+                Duration::from_secs(5),
+            )
+            .expect("run resolves");
+
+            assert_eq!(out.status, "done");
+            assert!(out.changed_files.is_empty(), "no git repo: no changes");
+            let got = streamed(&events);
+            assert!(
+                got.contains(&("stdout".into(), "out-line".into())),
+                "{got:?}"
+            );
+            assert!(
+                got.contains(&("stderr".into(), "err-line".into())),
+                "{got:?}"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn silent_zero_exit_reports_done_with_no_events() {
+            let dir = temp_case("silent");
+            let script = write_script(&dir, "cli", "exit 0");
+            let (channel, events) = harness();
+
+            let out = run_agent_impl(
+                invocation(script, &dir, vec![]),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(Mutex::new(None)),
+                channel,
+                Duration::from_secs(5),
+            )
+            .expect("run resolves");
+
+            assert_eq!(out.status, "done");
+            assert!(events.lock().unwrap().is_empty());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn nonzero_exit_reports_error() {
+            let dir = temp_case("fail");
+            let script = write_script(&dir, "cli", "echo partial output; exit 3");
+            let (channel, events) = harness();
+
+            let out = run_agent_impl(
+                invocation(script, &dir, vec![]),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(Mutex::new(None)),
+                channel,
+                Duration::from_secs(5),
+            )
+            .expect("run resolves");
+
+            assert_eq!(out.status, "error");
+            let got = streamed(&events);
+            assert!(
+                got.contains(&("stdout".into(), "partial output".into())),
+                "{got:?}"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn cancel_wins_over_the_exit_code() {
+            let dir = temp_case("cancel");
+            let script = write_script(&dir, "cli", "exit 0");
+            let (channel, _events) = harness();
+            let cancel = Arc::new(AtomicBool::new(true));
+
+            let out = run_agent_impl(
+                invocation(script, &dir, vec![]),
+                cancel,
+                Arc::new(Mutex::new(None)),
+                channel,
+                Duration::from_secs(5),
+            )
+            .expect("run resolves");
+
+            assert_eq!(out.status, "cancelled");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn hung_child_holding_a_pipe_is_force_killed_at_the_cap() {
+            let dir = temp_case("hang");
+            let pid_file = dir.join("child.pid");
+            // Record the PID, emit one line, then hold stdout open far past
+            // the test's cap — exactly the "hung child with an open pipe"
+            // shape the cap exists for.
+            let script = write_script(
+                &dir,
+                "cli",
+                "echo $$ > \"$1\"\necho started\ni=0\nwhile [ \"$i\" -lt 300 ]; do sleep 1; i=$((i+1)); done",
+            );
+            let (channel, _events) = harness();
+            let cancel = Arc::new(AtomicBool::new(false));
+
+            let started = Instant::now();
+            let out = run_agent_impl(
+                invocation(script, &dir, vec![pid_file.to_string_lossy().into_owned()]),
+                cancel,
+                Arc::new(Mutex::new(None)),
+                channel,
+                Duration::from_millis(400),
+            )
+            .expect("run resolves");
+
+            let elapsed = started.elapsed();
+            assert_eq!(
+                out.status, "error",
+                "a force-kill without cancel is a failed run"
+            );
+            assert!(
+                elapsed >= Duration::from_millis(400),
+                "cap engaged: {elapsed:?}"
+            );
+            assert!(
+                elapsed < Duration::from_secs(10),
+                "must not block for the production cap: {elapsed:?}"
+            );
+
+            // The child ran, recorded itself, and was reaped before return.
+            let pid: u32 = std::fs::read_to_string(&pid_file)
+                .expect("child recorded its pid")
+                .trim()
+                .parse()
+                .expect("pid");
+            assert!(
+                !Path::new(&format!("/proc/{pid}")).exists(),
+                "force-killed child must be reaped"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }
