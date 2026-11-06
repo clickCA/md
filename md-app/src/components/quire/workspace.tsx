@@ -432,6 +432,15 @@ export function Workspace({
           lastRun={status?.lastRun ?? null}
           lastSyncError={vault.lastSyncError}
           activePath={active}
+          branch={gitState?.branch ?? "main"}
+          loadBranches={vault.loadBranches}
+          onSwitchBranch={(name) => {
+            // The open diff/revision refers to the previous branch's world.
+            setDiffPath(null);
+            setRevision(null);
+            void vault.switchBranch(name);
+          }}
+          onCreateBranch={vault.createBranch}
           loadNoteHistory={vault.noteHistory}
           loadVaultHistory={vault.vaultHistory}
           onShowRevision={(entry) => void showRevision(entry)}

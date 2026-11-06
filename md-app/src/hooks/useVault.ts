@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { Creds, CommitInfo, GitState, HistoryEntry, Status, SyncResult } from "../types";
+import type {
+  Branches,
+  Creds,
+  CommitInfo,
+  GitState,
+  HistoryEntry,
+  Status,
+  SyncResult,
+} from "../types";
 import { errorMessage, isAuthError } from "../lib/ipc";
 import { type VaultFile, fileName } from "../lib/vault";
 
@@ -436,6 +444,36 @@ export function useVault(dir: string) {
     [dir, run, refresh, scheduleAutoSync],
   );
 
+  /** Local branches of the vault. */
+  const loadBranches = useCallback(async (): Promise<Branches> => {
+    try {
+      return await invoke<Branches>("git_branches", { dir });
+    } catch {
+      return { current: "main", branches: [] };
+    }
+  }, [dir]);
+
+  /** Create a branch at the current head (never switches). */
+  const createBranch = useCallback(
+    async (name: string) => {
+      await run("create branch", () => invoke("git_branch_create", { dir, name }));
+    },
+    [dir, run],
+  );
+
+  /** Switch branches (refused while dirty — nothing is ever lost). The
+      whole file tree changes: refresh everything afterwards. */
+  const switchBranch = useCallback(
+    async (name: string) => {
+      await run("switch branch", async () => {
+        await invoke("git_branch_switch", { dir, name });
+        dirtyRef.current.clear();
+        await refresh();
+      });
+    },
+    [dir, run, refresh],
+  );
+
   const onSignIn = useCallback(
     (c: Creds) => {
       setCreds(c);
@@ -477,6 +515,9 @@ export function useVault(dir: string) {
     noteRevision,
     restoreNote,
     restoreSnapshot,
+    loadBranches,
+    createBranch,
+    switchBranch,
     refresh,
     run,
     autoSync,

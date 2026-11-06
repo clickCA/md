@@ -14,8 +14,6 @@ pub struct GixBackend {
     repo: gix::Repository,
 }
 
-const MAIN: &str = "refs/heads/main";
-
 fn sig() -> Signature {
     Signature {
         name: "md-sync".into(),
@@ -165,11 +163,9 @@ impl GixBackend {
         });
         let mut opts = git2::PushOptions::new();
         opts.remote_callbacks(cbs);
-        let refspec = if force {
-            "+refs/heads/main:refs/heads/main"
-        } else {
-            "refs/heads/main:refs/heads/main"
-        };
+        let branch = self.current_branch()?;
+        let force_char = if force { "+" } else { "" };
+        let refspec = format!("{force_char}refs/heads/{branch}:refs/heads/{branch}");
         remote
             .push(&[refspec], Some(&mut opts))
             .context("libgit2 push")?;
@@ -262,31 +258,94 @@ impl GitBackend for GixBackend {
         }
     }
 
-    fn head_oid(&self) -> Result<Option<Oid>> {
+    fn current_branch(&self) -> Result<String> {
+        let Some(head) = self.repo.try_find_reference("HEAD")? else {
+            return Ok("main".to_string());
+        };
+        let short = head
+            .target()
+            .try_name()
+            .and_then(|name| name.as_bstr().to_str().ok())
+            .and_then(|name| name.strip_prefix("refs/heads/"))
+            .map(str::to_string);
+        Ok(short.unwrap_or_else(|| "main".to_string()))
+    }
+
+    fn list_branches(&self) -> Result<Vec<String>> {
+        let mut out = Vec::new();
+        for r in self.repo.references()?.all()? {
+            let r = r?;
+            let name = r.name().as_bstr().to_str().unwrap_or_default().to_string();
+            if let Some(short) = name.strip_prefix("refs/heads/") {
+                out.push(short.to_string());
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    fn branch_oid(&self, branch: &str) -> Result<Option<Oid>> {
         Ok(self
             .repo
-            .try_find_reference(MAIN)?
+            .try_find_reference(format!("refs/heads/{branch}").as_str())?
             .and_then(|r| ref_target_oid(&r).map(to_hex)))
     }
 
-    fn remote_main_oid(&self) -> Result<Option<Oid>> {
+    fn create_branch(&self, branch: &str, at: Option<&Oid>) -> Result<()> {
+        let at = match at {
+            Some(oid) => oid.clone(),
+            None => self
+                .head_oid()?
+                .ok_or_else(|| anyhow!("cannot create a branch before the first commit"))?,
+        };
+        let edit = gix::refs::transaction::RefEdit::update(
+            gix::refs::FullName::try_from(format!("refs/heads/{branch}"))?,
+            Target::Object(from_hex(&at)?),
+            PreviousValue::Any,
+            "md: create branch",
+        );
+        self.repo.edit_reference(edit)?;
+        Ok(())
+    }
+
+    fn set_head_branch(&self, branch: &str) -> Result<()> {
+        let edit = gix::refs::transaction::RefEdit::update(
+            "HEAD".try_into()?,
+            Target::Symbolic(format!("refs/heads/{branch}").try_into()?),
+            PreviousValue::Any,
+            "md: switch branch",
+        );
+        self.repo.edit_reference(edit)?;
+        Ok(())
+    }
+
+    fn remote_branch_oid(&self, branch: &str) -> Result<Option<Oid>> {
         // `refs/remotes/origin/HEAD` is ambiguous: in a normal clone it is a
         // symref to the default branch, but the refspec `+refs/heads/*` also
         // maps a remote branch literally named `HEAD` onto it — shadowing the
-        // real `main` tip with a stale oid (seen in the wild). Prefer the
-        // explicit branch refs first; fall back to HEAD last.
-        for name in [
-            "refs/remotes/origin/main",
-            "refs/remotes/origin/master",
-            "refs/remotes/origin/HEAD",
-        ] {
-            if let Some(mut r) = self.repo.try_find_reference(name)? {
+        // real tip with a stale oid (seen in the wild). Prefer the explicit
+        // branch ref; keep the legacy fallbacks for the default branch.
+        let mut names = vec![format!("refs/remotes/origin/{branch}")];
+        if branch == "main" {
+            names.push("refs/remotes/origin/master".into());
+            names.push("refs/remotes/origin/HEAD".into());
+        }
+        for name in names {
+            if let Some(mut r) = self.repo.try_find_reference(name.as_str())? {
                 if let Ok(id) = r.follow_to_object() {
                     return Ok(Some(to_hex(id.detach())));
                 }
             }
         }
         Ok(None)
+    }
+
+    fn head_oid(&self) -> Result<Option<Oid>> {
+        let branch = self.current_branch()?;
+        Ok(self
+            .repo
+            .try_find_reference(format!("refs/heads/{branch}").as_str())?
+            .and_then(|r| ref_target_oid(&r).map(to_hex)))
     }
 
     fn fetch(&self, creds: Option<&Credentials>) -> Result<Option<Oid>> {
@@ -324,17 +383,17 @@ impl GitBackend for GixBackend {
             .map_err(|e| anyhow!("prepare_fetch failed: {e}"))?;
         prep.receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
             .map_err(|e| anyhow!("fetch receive failed: {e}"))?;
-        self.remote_main_oid()
+        let branch = self.current_branch()?;
+        self.remote_branch_oid(&branch)
     }
 
-    fn push_main(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
+    fn push_current(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
         self.push_refspec(expected_local, creds, false)
     }
 
-    fn force_push_main(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
+    fn force_push_current(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
         self.push_refspec(expected_local, creds, true)
     }
-
     fn merge_base(&self, a: &Oid, b: &Oid) -> Result<Option<Oid>> {
         let oid = self
             .repo
@@ -424,9 +483,10 @@ impl GitBackend for GixBackend {
         Ok(to_hex(self.repo.write_object(&commit)?.detach()))
     }
 
-    fn update_main(&self, commit: &Oid) -> Result<()> {
+    fn update_branch(&self, commit: &Oid) -> Result<()> {
+        let branch = self.current_branch()?;
         let edit = gix::refs::transaction::RefEdit::update(
-            MAIN.try_into()?,
+            format!("refs/heads/{branch}").try_into()?,
             Target::Object(from_hex(commit)?),
             PreviousValue::Any,
             "md-sync",

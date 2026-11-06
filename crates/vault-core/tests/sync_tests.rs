@@ -287,7 +287,7 @@ fn stale_remote_head_branch_does_not_shadow_main() {
 
     // Plant the trap: a stale branch named `HEAD` on the remote, pointing at
     // the *old* tip. (`git branch` rejects the name; ref plumbing allows it.)
-    let stale = e.a.git.remote_main_oid().unwrap().unwrap();
+    let stale = e.a.git.remote_branch_oid("main").unwrap().unwrap();
     let remote_dir = e._tmp.path().join("remote.git");
     let out = std::process::Command::new("git")
         .args([
@@ -335,7 +335,10 @@ fn clone_materializes_remote_content() {
     let head = c.git.head_oid().unwrap();
     assert_eq!(head, Some(out.head.clone().unwrap()));
     // clone adopts the remote tip with no spurious local commit
-    assert_eq!(c.git.remote_main_oid().unwrap(), Some(out.head.unwrap()));
+    assert_eq!(
+        c.git.remote_branch_oid("main").unwrap(),
+        Some(out.head.unwrap())
+    );
 }
 
 /// `git clone` of a repo with no commits succeeds (empty working tree, remote
@@ -354,7 +357,7 @@ fn clone_tolerates_empty_remote() {
     assert_eq!(out.action, "clone (empty remote)");
     assert!(c.git.head_oid().unwrap().is_none(), "no local history");
     assert!(
-        c.git.remote_main_oid().unwrap().is_none(),
+        c.git.remote_branch_oid("main").unwrap().is_none(),
         "remote stays empty"
     );
     assert_eq!(
