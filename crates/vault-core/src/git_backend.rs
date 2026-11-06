@@ -26,6 +26,16 @@ pub struct TreeEntry {
     pub is_dir: bool,
 }
 
+/// Commit metadata for history views: who, when, what the sync wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitMeta {
+    pub oid: Oid,
+    pub message: String,
+    pub author: String,
+    /// Commit time, seconds since the Unix epoch.
+    pub time: i64,
+}
+
 pub type Tree = BTreeMap<String, TreeEntry>;
 
 pub trait GitBackend {
@@ -48,6 +58,8 @@ pub trait GitBackend {
     fn merge_base(&self, a: &Oid, b: &Oid) -> Result<Option<Oid>>;
     fn commit_tree_of(&self, commit: &Oid) -> Result<Oid>;
     fn commit_time(&self, commit: &Oid) -> Result<i64>;
+    /// Message, author name, and time of a commit (history views).
+    fn commit_info(&self, commit: &Oid) -> Result<CommitMeta>;
     fn tree_of(&self, tree_oid: &Oid) -> Result<Tree>;
     fn read_blob(&self, oid: &Oid) -> Result<Vec<u8>>;
     fn write_blob(&self, data: &[u8]) -> Result<Oid>;
