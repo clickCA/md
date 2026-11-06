@@ -48,6 +48,9 @@ make setup      # pnpm install + cargo fetch
 make check      # full gate: lint, format, typecheck, 34 frontend tests,
                 # 18 Rust tests, frontend build, Rust build — should all pass
 make dev        # → the Quire window opens (Tauri + Vite hot reload)
+make bench      # large-workspace perf snapshot (release; 2k notes by
+                # default — override with BENCH_NOTES/BENCH_WORDS); not
+                # part of make test
 ```
 
 That's the product. For a distributable binary:
