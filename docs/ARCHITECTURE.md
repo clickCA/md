@@ -22,6 +22,7 @@ md/                          ← repo root: Cargo workspace + pnpm workspace
 │   │   └── lib/                pure helpers (ipc, vault model)
 │   └── src-tauri/           ← Tauri shell (adapter layer)
 │       ├── src/commands/    ←   THE UI ⇄ Rust boundary (see docs/api.md)
+│       │   └── agent.rs     ←   coding-agent CLI integration (subprocess)
 │       └── src/error.rs     ←   structured AppError → { code, message }
 └── docs/                    ← adr/, api.md, this file
 ```
@@ -47,7 +48,10 @@ vault-core (crates/)           Rust engine: knows nothing about Tauri
 1. `vault-core` must not depend on Tauri, React, or anything UI — it is buildable and
    testable headlessly (`cargo test -p vault-core`), which keeps mobile ports possible.
 2. The UI never touches the filesystem or Git directly; every effect crosses
-   `commands/` (Tauri dialog/opener plugins are the only exceptions).
+   `commands/` (Tauri dialog/opener plugins are the only exceptions). The agent
+   feature (`commands/agent.rs`) is the single deliberate exception: it spawns the
+   user's own coding-agent CLI as an external subprocess (see
+   `docs/adr/2026-11-06-coding-agent-panel.md`).
 3. Every command, DTO field, and error code is part of the UI contract — documented in
    `docs/api.md`; rename in lockstep or not at all.
 4. Markdown files on disk are the source of truth; SQLite (`db.rs`) is a rebuildable
@@ -70,7 +74,9 @@ vault-core (crates/)           Rust engine: knows nothing about Tauri
 
 CI runs the same gates on `ubuntu-latest` (`.github/workflows/ci.yml`). Tauri's Linux
 system prerequisites (GTK/WebKit) are needed to compile `md-app/src-tauri` locally on
-Debian/Ubuntu; CI installs them via apt.
+Debian/Ubuntu; CI provides them via the `ghcr.io/clickca/md-ci` builder image
+(`docker/ci/Dockerfile`) — the Rust job runs inside it instead of installing them
+per run (`make docker-ci` builds it locally; see docs/adr/2026-11-06-ci-builder-image.md).
 
 ## Decision records
 

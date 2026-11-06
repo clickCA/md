@@ -19,7 +19,7 @@ CARGO ?= cargo
 .PHONY: help setup dev dev-landing lint lint-js lint-rust \
         format format-js format-rust format-check format-check-js format-check-rust \
         typecheck test test-js test-rust build build-js build-landing build-rust \
-        android android-log pacman-publish check clean
+        docker-ci android android-log pacman-publish check clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -80,6 +80,9 @@ build-landing: ## Build the landing page (static site in landing/dist)
 
 build-rust: ## Compile the Rust workspace
 	$(CARGO) build --workspace
+
+docker-ci: ## Build the CI builder image (baked Tauri Linux deps) — used by ci.yml / release.yml
+	docker build -t ghcr.io/clickca/md-ci:latest ./docker/ci
 
 pacman-publish: ## Refresh pacman repo (md-repo) from the latest release
 	packaging/arch/publish.sh $(TAG)
