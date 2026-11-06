@@ -13,6 +13,11 @@ pub struct Vault {
 
 impl Vault {
     pub fn create_remote(path: &Path) -> Result<()> {
+        // Create missing parents, so e.g. `init-remote /tmp/x/remote.git`
+        // works on a fresh machine instead of failing on a missing dir.
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         GixBackend::init_bare(path)?;
         Ok(())
     }
