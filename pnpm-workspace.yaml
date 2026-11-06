@@ -2,8 +2,8 @@ packages:
   - md-app
   - landing
 
-# supply-chain guard: hold brand-new releases back; these pinned versions are
-# exempt because the project was scaffolded against them
+# supply-chain guard: hold brand-new releases back; listed packages are pinned
+# intentionally (project scaffold or an explicit dependency bump).
 minimumReleaseAgeExclude:
   - '@vitest/browser-playwright@5.0.5'
   - '@vitest/browser@5.0.5'
@@ -13,3 +13,6 @@ minimumReleaseAgeExclude:
   - '@vitest/ui@5.0.5'
   - '@vitest/utils@5.0.5'
   - vitest@5.0.5
+  - '@astrojs/internal-helpers@0.13.1'
+  - '@astrojs/markdown-satteri@0.4.7'
+  - astro@7.4.7
