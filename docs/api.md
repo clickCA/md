@@ -107,13 +107,88 @@ is stored, so a token already saved for `git push`/`git fetch` is reused without
 the dialog. Supplied credentials are used only for the duration of the call and
 are never persisted or logged.
 
+## Agent commands
+
+Coding-agent integration: spawns the opencode / codex / Claude Code CLIs against
+the vault directory and streams their output into the UI. The CLIs are treated as
+black boxes (FND-12: the command layer is the only boundary). Quire never holds
+API keys — each agent reads its own auth from the user's HOME, exactly as it would
+from a terminal. The working directory is always the vault root, so whatever the
+agent edits is captured by the downstream git review/sync flow.
+
+| Command         | Arguments                                    | Returns                                        |
+| --------------- | -------------------------------------------- | ---------------------------------------------- |
+| `agent_detect`  | —                                            | `AgentProvider[]` — providers whose CLI is on PATH |
+| `agent_run`     | `dir`, `provider`, `prompt`, `options?`, `onEvent` | `AgentRun` — streams `AgentEvent`s over `onEvent`, resolves when the process exits (or is cancelled) |
+| `agent_stop`    | —                                            | `void` — cancel the in-flight run (kills the child) |
+
+`AgentProvider = { id, label, available, installHint }` — `id ∈ opencode | codex | claude`.
+`AgentEvent = { kind: "output", stream: "stdout" | "stderr", text }` — one line/chunk of output.
+`AgentRunOptions = { autoApprove?, continueSession?, resumeSessionId? }`
+`AgentRun = { status, changedFiles, sessionId?, summary?, durationMs }`
+
+- `provider` may be `opencode`, `codex`, `claude`/`claude-code`; anything else rejects
+  with `invalid-input` (as do an empty prompt and a non-directory `dir`).
+- A provider whose CLI is not on PATH rejects with `invalid-input`; the message
+  carries the provider's `installHint` so the UI can show what to run.
+- Runs are one-shot, non-interactive invocations (`opencode run`, `codex exec`,
+  `claude -p`) with `cwd = dir`. The prompt is passed as a single argv
+  argument (no shell), so user text cannot inject commands.
+- `options.autoApprove` maps to each CLI's flag (`--auto`, `--full-auto`,
+  `bypassPermissions`); Claude without auto-approve gets `acceptEdits` so plain
+  runs may edit files but never run bash/git.
+- Streaming: `AgentEvent` arrives over the `onEvent` channel as the CLI produces
+  output, so the UI shows tokens in real time. Claude's `stream-json` output is
+  normalized (partial assistant text is streamed; the terminal `result` event
+  supplies `sessionId` and a human `summary`); other providers pass raw lines.
+- Concurrency: **at most one run at a time**. A second `agent_run` while one is
+  in flight rejects with `internal` ("an agent run is already in progress").
+- Cancel: `agent_stop` kills the child; the run then resolves with
+  `status: "cancelled"`. A run that finishes normally reports `status: "done"`.
+- `changedFiles` is the `git status --porcelain` listing (vault-relative) captured
+  after the run — anything the agent wrote, ready for the review/sync flow.
+- Safety net: `agent_run` waits for both output pipes to close with a 60 s cap
+  each; a child that hangs holding a pipe open is force-killed instead of
+  blocking the command forever.
+- `io` = failed to spawn the CLI; `vault` = the post-run `git status` failed.
+
+## Coding agent
+
+The AI agent panel runs a coding-agent CLI against the vault folder. This is the
+**only** place the app launches external CLI subprocesses; see
+`docs/adr/2026-11-06-coding-agent-panel.md`.
+
+| Command       | Arguments                                                          | Returns                                                                 |
+| ------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `agent_detect`| —                                                                  | `AgentProvider[]` — the supported CLIs and whether each is on PATH      |
+| `agent_run`   | `dir`, `provider`, `prompt`, `options`, `onEvent` (streaming `Channel`) | `AgentRun` — after streaming output over the channel               |
+| `agent_stop`  | —                                                                  | `void` — cancels the in-flight run (kills the child)                    |
+
+- `AgentProvider = { id: "opencode" | "codex" | "claude", label, available, installHint }` —
+  `available` is a PATH probe (no execution). Auth is the CLI's own HOME config; Quire never
+  accepts or stores credentials, API keys, or model choices.
+- `AgentRunOptions = { autoApprove, continueSession, resumeSessionId? }`. `autoApprove` maps to
+  the provider's non-interactive permission flag (`--auto`, `--full-auto`,
+  `--permission-mode bypassPermissions`). Without it, Claude Code still edits existing files
+  (`acceptEdits`) while Bash/git stays disabled.
+- `AgentEvent` (streamed): `{ kind: "output", stream: "stdout" | "stderr", text }`.
+- `AgentRun = { status: "done" | "cancelled", changedFiles: string[], sessionId?, summary?, durationMs }`.
+- The agent runs **non-interactively in `dir`** (the vault root), so everything it edits lands in
+  the working tree and flows through the normal git review/sync path (`git_status_cmd`, sync).
+- `changedFiles` is parsed from `git status --porcelain` after the run — a snapshot of the working
+  tree, not an inventory of agent tool calls.
+- At most one run at a time; `agent_stop` kills the current child and the run resolves with
+  `status: "cancelled"`.
+
 ## Boundary rules
 
 1. All cross-boundary DTOs are camelCase and defined once per side
    (`commands/dto.rs` ⇄ `src/types.ts`).
 2. The UI never touches the filesystem or Git directly — every effect goes through a
    command listed here (Tauri plugins for dialogs/opener/clipboard-manager are the only
-   exceptions).
+   exceptions). The agent commands spawn the user's *own* coding-agent CLI as an external
+   subprocess (documented in its ADR) — the single deliberate exception, scoped to that
+   feature.
 3. `vault-core` knows nothing about Tauri; the command layer is the only adapter.
 4. Adding a command: implement it in the matching `commands/*.rs` module, register it
    in `lib.rs`, document it here, and cover new behavior with tests where practical.

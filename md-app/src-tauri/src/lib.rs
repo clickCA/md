@@ -27,6 +27,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(commands::agent::AgentState::default())
         .setup(|app| {
             // macOS routes Cmd+C/X/V/A into the webview through the responder
             // chain, which only fires when a native Edit menu carries those
@@ -77,6 +78,9 @@ pub fn run() {
             commands::fsx::vault_path,
             commands::git::git_state_cmd,
             commands::git::git_action,
+            commands::agent::agent_detect,
+            commands::agent::agent_run,
+            commands::agent::agent_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

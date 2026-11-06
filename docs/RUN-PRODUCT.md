@@ -77,6 +77,7 @@ pnpm --filter md-app tauri build    # installer/bundle under md-app/src-tauri/ta
 | Edit the same note on another clone, sync both          | Non-overlapping edits merge; overlapping edits keep both (`.conflict-<ts>.md`) |
 | Right-click in the editor, preview or any input         | Cut · Copy · Paste · Select All — the same menu on macOS, Windows and Linux; `Cmd`/`Ctrl+C` `X` `V` work in the editor everywhere |
 | Open the same folder in any other editor                | Plain Markdown + plain Git — everything keeps working; Quire's search picks up the change on its next query |
+| `Ctrl Shift A` (or the ✨ button)                        | AI agent panel: pick opencode / Claude Code / codex, prompt it, watch it edit your vault live, open what it changed, sync normally |
 | Vault settings (gear)                                   | Remote URL, auto-sync toggle, theme switch                          |
 | Typography (top-bar **T**, or `Ctrl K` → Typography)    | Pick a font family and size for Writing, Reading and Code — applied instantly and saved per machine |
 
@@ -109,5 +110,9 @@ disappeared tomorrow, you'd lose nothing but the app.
   series — that is the MOB epic, gated on device testing.
 - **Auto-resolution of conflicts**: by design. Auto-sync will happily sync
   conflicts into being, but resolving them stays a human decision.
-- **Cloud service, realtime collaboration, AI, plugins**: excluded from the
+- **Cloud service, realtime collaboration, plugins**: excluded from the
   product boundary on purpose.
+- **AI**: shipped as a *client* integration, not a bundled model. The AI agent
+  panel drives your own opencode / Claude Code / codex CLI in the vault folder
+  (BYO auth, BYO model — Quire never sees credentials); see
+  `docs/adr/2026-11-06-coding-agent-panel.md`.
