@@ -14,6 +14,7 @@ md/                          ← repo root: Cargo workspace + pnpm workspace
 │       ├── src/gix_backend.rs ←  Git transport (gix + libgit2 push), behind GitBackend
 │       ├── src/sync.rs      ←   sync state machine (fetch/merge/commit/push)
 │       ├── src/merge.rs     ←   line-level three-way merge (imara-diff)
+│       ├── src/exclude.rs   ←   `.quireignore` app-view path exclusions
 │       └── src/db.rs        ←   SQLite journal + conflict records (rebuildable index)
 ├── md-app/                  ← Tauri 2 application (the only JS package today)
 │   ├── src/                 ← React UI (presentation + hooks)

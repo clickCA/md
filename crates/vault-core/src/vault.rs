@@ -77,6 +77,21 @@ impl Vault {
             .collect())
     }
 
+    /// Files the app should *see*: `fs_files` minus `.quireignore` matches.
+    /// File tree, note listing, and search build on this; sync and git keep
+    /// the unfiltered `fs_files` view so tracking and history are unaffected.
+    pub fn visible_files(&self) -> Result<Vec<(String, PathBuf)>> {
+        let exclusions = crate::exclude::Exclusions::load(&self.root);
+        if exclusions.is_empty() {
+            return self.fs_files();
+        }
+        Ok(self
+            .fs_files()?
+            .into_iter()
+            .filter(|(rel, _)| !exclusions.is_excluded(rel))
+            .collect())
+    }
+
     pub fn fs_tree(&self) -> Result<Tree> {
         let mut tree = Tree::new();
         for (rel, path) in self.fs_files()? {
@@ -126,13 +141,18 @@ impl Vault {
     /// Non-ASCII queries (Thai, CJK, …) fall back to the line scan when the
     /// tokenizer finds nothing: space-less scripts tokenize poorly, and
     /// correctness beats speed for the MVP.
+    ///
+    /// Search only ever sees visible files (`visible_files`): `.quireignore`
+    /// matches are excluded from the drift comparison, so excluded content
+    /// is both never indexed and purged from the index when a file becomes
+    /// excluded — no tokens of it survive in `index.db`.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
         let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         if terms.is_empty() {
             return Ok(Vec::new());
         }
         let files: Vec<(String, PathBuf)> = self
-            .fs_files()?
+            .visible_files()?
             .into_iter()
             .filter(|(rel, _)| rel.ends_with(".md"))
             .collect();
