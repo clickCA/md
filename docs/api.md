@@ -132,6 +132,29 @@ is stored, so a token already saved for `git push`/`git fetch` is reused without
 the dialog. Supplied credentials are used only for the duration of the call and
 are never persisted or logged.
 
+## History (browse + restore)
+
+Built on the real git log — no journal reconstruction. Restore is deliberately
+**additive history**: it writes an old revision's content back through the
+normal note write path, so it lands as a regular (commit-and-sync) change.
+Nothing is ever rewritten — no rebase, no destructive operations — and a
+restored deleted note is simply re-created.
+
+| Command          | Arguments                            | Returns                                                                            |
+| ---------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| `note_history`   | `dir`, `path`, `limit?` (1–200, default 50) | `HistoryEntry[]`, newest first — commits that touched the note; renames are followed, so pre-rename entries carry the old `path` |
+| `vault_history`  | `dir`, `limit?`                      | `Commit[]` — every commit, newest first                                            |
+| `note_revision`  | `dir`, `path`, `oid`, `change`       | `{ content }` — the entry's content read-only; a `deleted` entry resolves to the content the deletion removed |
+| `note_restore`   | `dir`, `path`, `oid`, `change`       | `void` — writes the revision content back to `path` (the note's current path)      |
+| `vault_restore`  | `dir`, `oid`                         | `void` — writes every note present at the revision back; notes created later are left alone |
+
+`HistoryEntry = { oid, message, author, time, change, path }` with
+`change ∈ added | modified | deleted` (the kind of change that revision made
+to the note). `Commit = { oid, message, author, time }` (epoch seconds).
+`note_restore`/`note_revision` reject unknown `change` values with
+`invalid-input`. Notes excluded via `.quireignore` keep their full history
+here — exclusions are an app-view filter (file tree/search), never a git one.
+
 ## Agent commands
 
 Coding-agent integration: spawns the opencode / codex / Claude Code CLIs against
