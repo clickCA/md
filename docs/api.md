@@ -68,7 +68,7 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 
 | Command         | Arguments                  | Returns                                          |
 | --------------- | -------------------------- | ------------------------------------------------ |
-| `note_list`     | `dir`                      | `string[]` — vault-relative `.md` paths, sorted  |
+| `note_list`     | `dir`                      | `string[]` — vault-relative `.md` paths, sorted; `.quireignore` matches are hidden (see [Path exclusions](#path-exclusions)) |
 | `note_read`     | `dir`, `path`              | `string` — UTF-8 content                         |
 | `note_write`    | `dir`, `path`, `content`   | `void` — atomic write through vault-core         |
 | `note_delete`   | `dir`, `path`              | `void`                                           |
@@ -77,7 +77,32 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 | `note_snapshot` | `dir`                      | `{ path, content, committed }[]` — everything the editor needs in one round trip (`committed` mirrors `note_base` semantics); preferred over the per-note fan-out |
 | `note_move`     | `dir`, `from`, `to`        | `void` — rename, removes emptied parent folder   |
 | `folder_create` | `dir`, `path`              | `void`                                           |
-| `search_notes`  | `dir`, `query`             | `SearchHit[] = { path, matches: { line, snippet }[] }` (capped at 200 hits). Behavior: FTS5-indexed and bm25-ranked (see `docs/adr/2026-10-30-search-index.md`); the index is stat-verified before every query and updated incrementally on drift, so external edits are always reflected. Non-ASCII queries fall back to a line scan. |
+| `search_notes`  | `dir`, `query`             | `SearchHit[] = { path, matches: { line, snippet }[] }` (capped at 200 hits). Behavior: FTS5-indexed and bm25-ranked (see `docs/adr/2026-10-30-search-index.md`); the index is stat-verified before every query and updated incrementally on drift, so external edits are always reflected. Non-ASCII queries fall back to a line scan. `.quireignore` matches are never indexed or returned; making a file excluded purges its tokens from the index on the next query. |
+
+## Path exclusions
+
+A `.quireignore` file at the vault root hides notes from the app's *own*
+surfaces — file tree (`note_list`, `note_snapshot`), search (`search_notes`),
+and everything built on them (AI retrieval, future AI actions). It never
+touches git: excluded notes remain on disk, tracked, synced, and in history
+(`note_statuses` and the source-control panel keep the full git view). The
+rules file itself is a plain vault file, so it syncs with the vault and rules
+follow across devices.
+
+Syntax follows `.gitignore` habits, scoped down:
+
+- blank lines and `# comments` are skipped
+- `!pattern` re-includes; the **last matching rule wins**
+- a trailing `/` marks a directory-only rule (`build/`)
+- a pattern containing `/` is anchored to the vault root (`docs/drafts`);
+  otherwise it matches at any depth (`*.log`, `scratch`)
+- `*` matches within one segment, `?` one character, a whole-segment `**`
+  matches zero or more segments (`**/temp`, `a/**/b`)
+- a rule matching a directory hides everything below it
+
+The engine applies exclusions in `vault-core/src/exclude.rs`; sync
+(`fs_tree` / `commit_pending` / `materialize`) deliberately uses the
+unfiltered file list.
 
 ## Files & images
 

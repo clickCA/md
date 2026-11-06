@@ -14,7 +14,7 @@ pub async fn note_list(dir: String) -> Result<Vec<String>, AppError> {
     blocking(move || {
         let vault = open_vault(&dir)?;
         let mut notes: Vec<String> = vault
-            .fs_files()?
+            .visible_files()?
             .into_iter()
             .map(|(rel, _)| rel)
             .filter(|rel| rel.ends_with(".md"))
@@ -131,11 +131,15 @@ pub struct SnapshotNoteDto {
 pub async fn note_snapshot(dir: String) -> Result<Vec<SnapshotNoteDto>, AppError> {
     blocking(move || {
         let vault = open_vault(&dir)?;
+        let exclusions = vault_core::exclude::Exclusions::load(&vault.root);
         let fs_blobs = flatten_blobs(&vault.fs_tree()?);
         let head_blobs = flatten_blobs(&vault.git.head_tree()?);
         let mut out: Vec<SnapshotNoteDto> = fs_blobs
             .into_iter()
-            .filter(|(path, _)| path.ends_with(".md"))
+            // App view only: `.quireignore` matches stay on disk and in git
+            // (note_statuses / sync keep the full view) but never surface
+            // to the editor's file tree.
+            .filter(|(path, _)| path.ends_with(".md") && !exclusions.is_excluded(path))
             .map(|(path, oid)| {
                 let content = std::fs::read_to_string(vault.root.join(&path)).unwrap_or_default();
                 let committed = match head_blobs.get(&path) {
