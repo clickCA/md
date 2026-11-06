@@ -722,8 +722,7 @@ fn run_agent_impl(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = cmd
-        .spawn()
+    let mut child = super::spawn_with_busy_retry(&mut cmd)
         .map_err(|e| AppError::Io(format!("failed to start {}: {e}", inv.binary.display())))?;
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
