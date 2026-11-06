@@ -11,7 +11,7 @@ export interface Citation {
   line: number | null;
 }
 
-const CITATION = /\[([^\[\]\n]+\.md)(?::(\d+))?\]/g;
+const CITATION = /\[([^[\]\n]+\.md)(?::(\d+))?\]/g;
 
 /** Unique citations in first-appearance order. */
 export function parseCitations(answer: string): Citation[] {
