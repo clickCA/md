@@ -32,6 +32,21 @@ fn from_hex(oid: &Oid) -> Result<gix::ObjectId> {
     gix::hash::ObjectId::from_hex(oid.as_bytes()).map_err(|e| anyhow!("invalid oid {oid}: {e:?}"))
 }
 
+/// Resolve credentials for `url` the same way `git` does: by asking the
+/// configured credential helpers (global + repo-local, e.g. the libsecret
+/// keychain) via libgit2, which reads the full git configuration. Never prompts
+/// on a terminal; returns `None` when nothing usable is stored so the caller can
+/// surface the typed "authentication required" error and let the UI ask instead.
+fn helper_credentials(workdir: &Path, url: &str) -> Option<Credentials> {
+    let repo = git2::Repository::open(workdir).ok()?;
+    let cfg = repo.config().ok()?;
+    git2::CredentialHelper::new(url)
+        .config(&cfg)
+        .username(None)
+        .execute()
+        .map(|(username, password)| Credentials { username, password })
+}
+
 fn ref_target_oid(r: &gix::Reference<'_>) -> Option<gix::ObjectId> {
     match r.target() {
         gix::refs::TargetRef::Object(id) => Some(id.to_owned()),
@@ -87,6 +102,32 @@ fn write_node(repo: &gix::Repository, map: &BTreeMap<String, Node>) -> Result<gi
 }
 
 impl GixBackend {
+    /// Resolve credentials for the `origin` remote: explicit credentials win,
+    /// otherwise fall back to git's own credential helpers for https remotes —
+    /// the same helpers `git fetch`/`git push` use — so a token already stored
+    /// locally (e.g. in the libsecret keychain) is reused instead of prompting
+    /// on every sync. Non-https remotes (`file://`, ssh, …) are left untouched.
+    fn resolve_credentials(&self, creds: Option<&Credentials>) -> Result<Option<Credentials>> {
+        if let Some(c) = creds {
+            return Ok(Some(c.clone()));
+        }
+        let Some(workdir) = self.repo.workdir() else {
+            return Ok(None);
+        };
+        let Some(url) = self
+            .repo
+            .find_remote("origin")?
+            .url(Direction::Fetch)
+            .map(|u| u.to_string())
+        else {
+            return Ok(None);
+        };
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Ok(None);
+        }
+        Ok(helper_credentials(workdir, &url))
+    }
+
     fn push_refspec(
         &self,
         expected_local: &Oid,
@@ -109,24 +150,16 @@ impl GixBackend {
             }
             Ok(())
         });
-        let creds = creds.cloned();
-        let creds_verify = creds.clone();
-        let workdir_c = workdir.clone();
-        let mut tries = 0usize;
-        cbs.credentials(move |url, username, _allowed| {
-            if let Some(c) = &creds {
+        // Reuse git's own credential storage when no explicit credentials were
+        // supplied, so sync doesn't prompt on every push — mirroring what `git
+        // push` would do. The resolved creds also feed the verification fetch
+        // below, which previously always failed on `None` even after a
+        // successful push.
+        let creds = self.resolve_credentials(creds)?;
+        let creds_v = creds.clone();
+        cbs.credentials(move |_url, _username, _allowed| {
+            if let Some(c) = &creds_v {
                 return git2::Cred::userpass_plaintext(&c.username, &c.password);
-            }
-            tries += 1;
-            if tries == 1 {
-                let helper = (|| {
-                    let repo = git2::Repository::open(&workdir_c)?;
-                    let cfg = repo.config()?;
-                    git2::Cred::credential_helper(&cfg, url, username)
-                })();
-                if let Ok(cred) = helper {
-                    return Ok(cred);
-                }
             }
             Err(git2::Error::from_str("authentication required"))
         });
@@ -147,7 +180,7 @@ impl GixBackend {
         remote.disconnect()?;
         drop(remote);
         drop(repo);
-        let actual = self.fetch(creds_verify.as_ref())?;
+        let actual = self.fetch(creds.as_ref())?;
         if actual.as_deref() != Some(expected_local.as_str()) {
             return Err(anyhow!(
                 "remote tip diverged after push: expected {expected_local}, got {:?}",
@@ -258,6 +291,11 @@ impl GitBackend for GixBackend {
 
     fn fetch(&self, creds: Option<&Credentials>) -> Result<Option<Oid>> {
         let remote = self.repo.find_remote("origin")?;
+        // Without explicit credentials, consult git's own credential helpers
+        // (e.g. the libsecret keychain) before giving up — this is what makes
+        // sync avoid the credentials dialog when a token is already stored
+        // locally for this remote.
+        let creds = self.resolve_credentials(creds)?;
         let mut con = remote.connect(Direction::Fetch)?;
         match creds {
             Some(c) => {
@@ -421,5 +459,108 @@ impl GitBackend for GixBackend {
         }
         files.sort();
         Ok(files)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// A self-contained fake credential helper: consumes stdin, then answers
+    /// any `get` with a fixed username/password pair. Lets us test the
+    /// git-helper fallback hermetically, without any real keyring.
+    fn fake_helper(dir: &Path) -> PathBuf {
+        let helper = dir.join("fake-credential-helper");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\ncat >/dev/null\nprintf 'username=helper-user\\npassword=helper-pass\\n'\n",
+        )
+        .expect("write helper script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&helper).expect("stat").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&helper, perms).expect("make helper executable");
+        }
+        helper
+    }
+
+    /// A backend whose repo-local git config points `credential.helper` at a
+    /// fake helper script and whose `origin` is an https remote — mirroring a
+    /// real setup where a token is stored in a local credential store.
+    fn backend_with_fake_helper(dir: &Path) -> GixBackend {
+        let mut backend = GixBackend::init(dir).expect("init backend");
+        backend
+            .set_remote("https://github.com/example/repo.git")
+            .expect("set https remote");
+        let helper = fake_helper(dir);
+        let config_path = dir.join(".git/config");
+        let mut file = backend
+            .repo
+            .config_file_mut(&config_path)
+            .expect("open config");
+        file.set_raw_value_by(
+            "credential",
+            None,
+            "helper",
+            helper.to_string_lossy().as_bytes().as_bstr(),
+        )
+        .expect("set credential.helper");
+        file.commit().expect("commit config");
+        backend
+    }
+
+    #[test]
+    fn falls_back_to_git_credential_helper_for_https() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let backend = backend_with_fake_helper(dir.path());
+
+        let creds = backend
+            .resolve_credentials(None)
+            .expect("resolve helper credentials")
+            .expect("helper must supply credentials");
+
+        assert_eq!(creds.username, "helper-user");
+        assert_eq!(creds.password, "helper-pass");
+    }
+
+    #[test]
+    fn explicit_credentials_win_over_helper() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let backend = backend_with_fake_helper(dir.path());
+        let supplied = Credentials {
+            username: "typed-user".into(),
+            password: "typed-pass".into(),
+        };
+
+        let creds = backend
+            .resolve_credentials(Some(&supplied))
+            .expect("resolve explicit credentials");
+
+        assert!(matches!(
+            creds,
+            Some(c) if c.username == "typed-user" && c.password == "typed-pass"
+        ));
+    }
+
+    #[test]
+    fn helper_is_not_queried_for_local_remotes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut backend = GixBackend::init(dir.path()).expect("init backend");
+        let remote = tempfile::tempdir().expect("remote tempdir");
+        let remote_url = remote.path().join("remote.git");
+        backend
+            .set_remote(&remote_url.to_string_lossy())
+            .expect("set local remote");
+
+        assert!(
+            backend
+                .resolve_credentials(None)
+                .expect("resolve")
+                .is_none(),
+            "non-https remotes must not trigger the credential helper"
+        );
     }
 }

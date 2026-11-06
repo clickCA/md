@@ -98,7 +98,7 @@ disappeared tomorrow, you'd lose nothing but the app.
 | `webkit2gtk-4.1 ... not found` on Linux       | Install the Tauri packages from §1                                     |
 | `make check` fails on clippy in CI but not locally | `rustup component add rustfmt clippy` — CI pins the same toolchain |
 | Browser tests skip/fail                       | `pnpm --filter md-app exec playwright install chromium`                |
-| Sync asks for credentials repeatedly          | Use the credentials dialog once per session; tokens stay in memory      |
+| Sync asks for credentials repeatedly          | It shouldn't, once a token is stored for the remote (e.g. `git credential approve` or the keychain); the engine reuses git's configured credential helpers. The dialog only appears when no usable credential exists locally |
 | Search index feels stale after bulk import    | It isn't — the next query stats the files and rebuilds. If you want to force it: delete `<vault>/index.db` |
 | Windows path errors opening a vault           | Keep vaults off network drives; sync indices dislike SMB latency       |
 
