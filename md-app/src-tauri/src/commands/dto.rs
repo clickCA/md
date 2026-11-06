@@ -68,7 +68,8 @@ pub fn conflict_dto(c: &vault_core::sync::ConflictRecord, at: String) -> Conflic
 /// Assemble full vault status: head vs filesystem, conflicts, last journal run.
 pub fn status_dto(vault: &Vault) -> Result<StatusDto, AppError> {
     let head = vault.git.head_oid()?;
-    let remote_main = vault.git.remote_main_oid()?;
+    let branch = vault.git.current_branch()?;
+    let remote_main = vault.git.remote_branch_oid(&branch)?;
     let fs_blobs = vault_core::merge::flatten_blobs(&vault.fs_tree()?);
     let head_blobs = vault_core::merge::flatten_blobs(&vault.git.head_tree()?);
     let conflicts = vault

@@ -119,10 +119,22 @@ leaves the vault root.
 
 | Command         | Arguments                              | Returns                                                        |
 | --------------- | -------------------------------------- | -------------------------------------------------------------- |
-| `git_state_cmd` | `dir`                                  | `GitState { remoteUrl?, head?, remote?, relation }`            |
+| `git_state_cmd` | `dir`                                  | `GitState { remoteUrl?, branch, head?, remote?, relation }`    |
 | `git_action`    | `dir`, `action`, `credentials?`        | `GitState` — after performing the action                       |
+| `git_branches`  | `dir`                                  | `Branches { current, branches[] }` — local branch names, sorted |
+| `git_branch_create` | `dir`, `name`                      | `Branches` — creates a branch at the current head; never switches |
+| `git_branch_switch` | `dir`, `name`                      | `GitState` — switches the vault to the branch (clean tree required) |
 
 `relation ∈ no-remote | empty | not-published | remote-only | in-sync | ahead | behind | diverged | unrelated | unknown`
+
+`GitState.branch` names the branch HEAD points at. The whole engine follows
+the current branch: `head` is its tip, `remote` is `origin/<branch>`, commits
+land on it, and `push` publishes it. `main` is the default; branch switching
+is refused while the working tree is dirty (the same pending check sync uses,
+including untracked notes) — nothing is ever lost to a switch. A branch that
+exists only as `origin/<name>` is created locally at its remote tip on switch
+(`git switch` semantics). Branch names are validated (no whitespace, `..`,
+leading `.`, `-` prefix, `.lock` suffix, glob characters).
 
 `action ∈ push | take-remote | force-publish` — explicit, user-triggered operations.
 `credentials = { username, password }` is optional. When omitted on an https

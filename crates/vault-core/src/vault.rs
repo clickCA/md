@@ -328,8 +328,86 @@ impl Vault {
         let commit =
             self.git
                 .create_commit(&fs_tree, &parent.into_iter().collect::<Vec<_>>(), message)?;
-        self.git.update_main(&commit)?;
+        self.git.update_branch(&commit)?;
         Ok(Some(commit))
+    }
+
+    /// Branch names to validate. `.gitignore`-free subset of git's ref rules
+    /// that covers everything a note vault needs: no empty/whitespace names,
+    /// no leading or trailing separators, no path games (`..`, leading dot or
+    /// dash), no glob or ref-syntax characters.
+    fn validate_branch_name(name: &str) -> Result<()> {
+        let bad = |msg: &str| anyhow!("invalid branch name: {msg}");
+        if name.is_empty() || name.len() > 100 {
+            return Err(bad("empty or over 100 characters"));
+        }
+        if name.starts_with('-') || name.starts_with('.') || name.ends_with('/') {
+            return Err(bad("must not start with '-' or '.', or end with '/'"));
+        }
+        if name.ends_with(".lock") {
+            return Err(bad("must not end with '.lock'"));
+        }
+        for part in name.split('/') {
+            if part.is_empty() || part.starts_with('.') || part.ends_with(".lock") {
+                return Err(bad("empty or dot/dot-lock path components"));
+            }
+        }
+        let forbidden = [
+            ' ', '~', '^', ':', '?', '*', '[', '\\', '\n', '\t', '@', '<', '>',
+        ];
+        if name.contains("..") || name.chars().any(|c| forbidden.contains(&c)) {
+            return Err(bad("contains whitespace or ref-syntax characters"));
+        }
+        Ok(())
+    }
+
+    /// Create a branch at the current head. Never switches to it.
+    pub fn create_branch(&self, name: &str) -> Result<()> {
+        Self::validate_branch_name(name)?;
+        if self.git.list_branches()?.iter().any(|b| b == name) {
+            anyhow::bail!("branch already exists: {name}");
+        }
+        self.git.create_branch(name, None)
+    }
+
+    /// Switch the vault to `branch`: refuses on any uncommitted change (the
+    /// same pending check sync uses — tracked *and* untracked files), then
+    /// checks out the branch content and moves HEAD. A branch that exists
+    /// only as `origin/<name>` (fetched, not yet local) is created locally
+    /// at its remote tip first — the familiar `git switch` behavior.
+    ///
+    /// Switching never loses data: a dirty vault is refused with guidance,
+    /// and untracked notes are covered by the same refusal.
+    pub fn switch_branch(&self, name: &str) -> Result<()> {
+        Self::validate_branch_name(name)?;
+        let target_tip = if self.git.branch_oid(name)?.is_some() {
+            self.git.branch_oid(name)?.expect("checked above")
+        } else {
+            let remote_tip = self
+                .git
+                .remote_branch_oid(name)?
+                .ok_or_else(|| anyhow!("no such branch: {name}"))?;
+            // Create the local branch at the remote tip (no switch yet).
+            self.git.create_branch(name, Some(&remote_tip))?;
+            remote_tip
+        };
+
+        // Clean-tree guard, mirroring commit_pending's pending check.
+        let fs_blobs = crate::merge::flatten_blobs(&self.fs_tree()?);
+        let head_blobs = crate::merge::flatten_blobs(&self.git.head_tree()?);
+        if fs_blobs != head_blobs {
+            anyhow::bail!(
+                "uncommitted changes — save and sync (or commit) before switching branches"
+            );
+        }
+
+        // Check out the target content, then move HEAD (same order as git:
+        // files first, ref last, so a mid-way failure leaves HEAD honest).
+        let tree_oid = self.git.commit_tree_of(&target_tip)?;
+        let blobs = crate::merge::flatten_blobs(&self.git.tree_of(&tree_oid)?);
+        self.materialize(&blobs)?;
+        self.git.set_head_branch(name)?;
+        Ok(())
     }
 
     pub fn materialize(&self, blobs: &std::collections::BTreeMap<String, String>) -> Result<()> {

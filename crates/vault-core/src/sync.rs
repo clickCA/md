@@ -50,8 +50,9 @@ pub fn clone_with(
     match sync_with(vault, creds) {
         Ok(outcome) => Ok(outcome),
         Err(e) => {
+            let branch = vault.git.current_branch()?;
             let empty_remote =
-                vault.git.head_oid()?.is_none() && vault.git.remote_main_oid()?.is_none();
+                vault.git.head_oid()?.is_none() && vault.git.remote_branch_oid(&branch)?.is_none();
             if empty_remote {
                 return Ok(SyncOutcome {
                     action: "clone (empty remote)".into(),
@@ -205,8 +206,8 @@ fn sync_inner(
     let commit =
         vault
             .git
-            .create_commit(&tree, &[local.clone(), remote.clone()], "merge origin/main")?;
-    vault.git.update_main(&commit)?;
+            .create_commit(&tree, &[local.clone(), remote.clone()], "merge origin")?;
+    vault.git.update_branch(&commit)?;
     abort_point("committing");
 
     push(vault, run, &commit, creds)?;
@@ -225,7 +226,7 @@ fn push(
     creds: Option<&crate::git_backend::Credentials>,
 ) -> Result<()> {
     vault.db.event(run, "pushing")?;
-    vault.git.push_main(&oid.to_string(), creds)?;
+    vault.git.push_current(&oid.to_string(), creds)?;
     abort_point("pushing");
     Ok(())
 }
@@ -237,7 +238,7 @@ fn fast_forward(vault: &Vault, remote: &str) -> Result<()> {
             .tree_of(&vault.git.commit_tree_of(&remote.to_string())?)?,
     );
     vault.materialize(&tree)?;
-    vault.git.update_main(&remote.to_string())?;
+    vault.git.update_branch(&remote.to_string())?;
     Ok(())
 }
 
@@ -350,7 +351,7 @@ pub fn push_now(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) 
         .git
         .head_oid()?
         .ok_or_else(|| anyhow!("no local history to push"))?;
-    vault.git.push_main(&local, creds)
+    vault.git.push_current(&local, creds)
 }
 
 /// Take the remote state verbatim: fetch, materialize, move main.
@@ -370,5 +371,5 @@ pub fn force_publish(vault: &Vault, creds: Option<&crate::git_backend::Credentia
         .git
         .head_oid()?
         .ok_or_else(|| anyhow!("no local history to publish"))?;
-    vault.git.force_push_main(&local, creds)
+    vault.git.force_push_current(&local, creds)
 }

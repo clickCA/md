@@ -36,9 +36,17 @@ export interface Creds {
 
 export interface GitState {
   remoteUrl: string | null;
+  /** Branch HEAD points at; commits and pushes follow it. */
+  branch: string;
   head: string | null;
   remote: string | null;
   relation: string;
+}
+
+/** Local branches of the vault (for the branch picker). */
+export interface Branches {
+  current: string;
+  branches: string[];
 }
 
 export interface Probe {
