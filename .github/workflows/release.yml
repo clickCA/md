@@ -14,37 +14,84 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Two jobs share an identical step list (the container must be a job-level
+# key — a matrix cell holding a container object does not compile — so the
+# Linux leg gets its own job instead of a matrix row).
+
 jobs:
-  desktop:
-    name: Desktop (${{ matrix.os }})
+  linux:
+    name: Desktop (ubuntu-latest)
+    runs-on: ubuntu-latest
+    # Tauri Linux prerequisites are baked into the CI builder image (rebuilt
+    # on main by docker-ci.yml) — no apt on the runner. The image is private,
+    # so the job's own GITHUB_TOKEN authenticates the pull.
+    container:
+      image: ghcr.io/clickca/md-ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            args: ""
-            # Tauri Linux prerequisites are baked into the CI builder image
-            # (rebuilt on main by docker-ci.yml) — no apt on the runner.
-            # The macOS/Windows rows run on the host (container: null), which
-            # is GitHub's way of opting a matrix combo out of a container.
-            container:
-              image: ghcr.io/clickca/md-ci:latest
-              credentials:
-                # `secrets` isn't an allowed context inside strategy.matrix;
-                # github.token is the GITHUB_TOKEN.
-                username: ${{ github.actor }}
-                password: ${{ github.token }}
+          - args: ""
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm version comes from packageManager in package.json
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and attach bundles to the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Sign the updater artifacts (createUpdaterArtifacts in
+          # tauri.conf.json). The private key is the one matching the
+          # `plugins.updater.pubkey` value — see docs/RELEASING.md (Auto-update).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key is generated without a password (see RELEASING.md)
+        with:
+          # the pushed tag decides the release — never derive it from the app
+          # version (v__VERSION__), so pre-release tags like v0.1.0-alpha.1
+          # get their bundles instead of spawning a full v0.1.0 release
+          tagName: ${{ github.ref_name }}
+          releaseName: "md ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: true
+          # Upload latest.json + .sig files so the updater plugin can find
+          # signed Windows/macOS bundles (Linux deb/rpm stay on the pacman
+          # repo; AppImage gets a signature as a bonus).
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           - os: windows-latest
             args: ""
-            container: null
           - os: macos-latest
             # universal binary — one .dmg covers Apple Silicon + Intel
             args: --target universal-apple-darwin
-            container: null
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -64,9 +111,6 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
-
-      # For Ubuntu, the deps are already in the container (matrix.container);
-      # for macOS/Windows no Linux deps are required.
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
