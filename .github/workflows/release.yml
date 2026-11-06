@@ -20,7 +20,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            args: ""
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            # universal binary — one .dmg covers Apple Silicon + Intel
+            args: --target universal-apple-darwin
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -36,6 +43,11 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # macOS: build a universal binary (Apple Silicon + Intel)
+      - name: Add macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
 
@@ -72,3 +84,4 @@ jobs:
           releaseDraft: false
           prerelease: true
           includeUpdaterJson: false
+          args: ${{ matrix.args }}
