@@ -1,5 +1,5 @@
 import { Check, RefreshCw, Sparkles, Square, TriangleAlert, X } from "lucide-react";
-import { suggestionDiff } from "@/lib/ai-selection";
+import { AI_ACTIONS, suggestionDiff } from "@/lib/ai-selection";
 import type { AiRequest } from "@/lib/ai-selection";
 import { diffStat, hunkHeader } from "@/lib/diff";
 
@@ -59,11 +59,12 @@ export function AiSuggestionCard({ phase, onAccept, onReject, onRegenerate, onCa
   }
 
   if (phase.kind === "generating") {
+    const running = AI_ACTIONS.find((a) => a.label === phase.req.label)?.running ?? "Working…";
     return (
       <div className="max-w-[30rem] rounded-lg border border-border bg-[var(--panel)] p-3 text-xs shadow-lg">
         <p className="flex items-center gap-1.5 font-medium">
-          <Sparkles className="size-3.5 text-primary" aria-hidden />
-          AI is rewriting…
+          <Sparkles className="size-3.5 animate-pulse text-primary" aria-hidden />
+          {running}
         </p>
         {phase.streamed && (
           <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
@@ -87,7 +88,7 @@ export function AiSuggestionCard({ phase, onAccept, onReject, onRegenerate, onCa
     <div className="max-w-[32rem] rounded-lg border border-border bg-[var(--panel)] text-xs shadow-lg">
       <div className="flex h-9 items-center gap-1.5 border-b border-border px-3">
         <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
-        <p className="min-w-0 flex-1 truncate font-medium">AI suggestion</p>
+        <p className="min-w-0 flex-1 truncate font-medium">AI suggestion · {req.label}</p>
         {(stat.additions > 0 || stat.deletions > 0) && (
           <span className="shrink-0 font-mono text-[11px]" aria-label="diff stat">
             <span className="text-added">+{stat.additions}</span>{" "}

@@ -55,8 +55,17 @@ async function setup(content = DOC, onChange: (content: string) => void = noop) 
 /** Select the first paragraph ("Alpha paragraph.\n" = 17 chars) and start AI. */
 async function startRewrite(view: EditorView) {
   view.dispatch({ selection: { anchor: 0, head: 17 } });
-  await page.getByRole("button", { name: "AI rewrite" }).click();
-  await expect.element(page.getByText("AI is rewriting…")).toBeVisible();
+  await openMenu();
+  await pick("Rewrite");
+}
+
+async function openMenu() {
+  await page.getByRole("button", { name: "AI", exact: true }).click();
+  await expect.element(page.getByRole("menu", { name: "AI actions" })).toBeVisible();
+}
+
+async function pick(label: string) {
+  await page.getByRole("menuitem", { name: label }).click();
 }
 
 beforeEach(() => {
@@ -72,7 +81,7 @@ describe("selection AI in the editor", () => {
     const aiDeferred = mockCore();
     await startRewrite(view);
     aiDeferred.resolve({ status: "done", text: "Alpha, rewritten.\n", durationMs: 5 });
-    await expect.element(page.getByText("AI suggestion")).toBeVisible();
+    await expect.element(page.getByText("AI suggestion · Rewrite")).toBeVisible();
     await page.getByRole("button", { name: "Accept" }).click();
 
     expect(view.state.doc.toString()).toBe("Alpha, rewritten.\n\nBeta paragraph.\n");
@@ -87,7 +96,7 @@ describe("selection AI in the editor", () => {
     const aiDeferred = mockCore();
     await startRewrite(view);
     aiDeferred.resolve({ status: "done", text: "Totally different.", durationMs: 5 });
-    await expect.element(page.getByText("AI suggestion")).toBeVisible();
+    await expect.element(page.getByText("AI suggestion · Rewrite")).toBeVisible();
     await page.getByRole("button", { name: "Discard" }).click();
 
     expect(view.state.doc.toString()).toBe(DOC);
@@ -108,7 +117,7 @@ describe("selection AI in the editor", () => {
     const docWithB = view.state.doc.toString();
 
     aiDeferred.resolve({ status: "done", text: "Alpha, rewritten.\n", durationMs: 5 });
-    await expect.element(page.getByText("AI suggestion")).toBeVisible();
+    await expect.element(page.getByText("AI suggestion · Rewrite")).toBeVisible();
 
     // Stale state: the warning is shown, Accept is disabled.
     await expect
@@ -138,7 +147,7 @@ describe("selection AI in the editor", () => {
     view.dispatch({ selection: { anchor: 0 } });
 
     aiDeferred.resolve({ status: "done", text: "Alpha, rewritten.\n", durationMs: 5 });
-    await expect.element(page.getByText("AI suggestion")).toBeVisible();
+    await expect.element(page.getByText("AI suggestion · Rewrite")).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Accept" })).toBeEnabled();
     await page.getByRole("button", { name: "Accept" }).click();
 
@@ -167,7 +176,8 @@ describe("selection AI in the editor", () => {
     // agent_detect resolves instantly, so the generating phase may flash
     // past — assert only on the end state.
     view.dispatch({ selection: { anchor: 0, head: 17 } });
-    await page.getByRole("button", { name: "AI rewrite" }).click();
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    await pick("Rewrite");
     await expect.element(page.getByText("npm i -g opencode-ai")).toBeVisible();
     expect(view.state.doc.toString()).toBe(DOC);
   });
@@ -181,7 +191,7 @@ describe("selection AI in the editor", () => {
     const beta = view.state.doc.line(3);
     view.dispatch({ changes: { from: beta.from, to: beta.to, insert: "Beta EDITED." } });
     aiDeferred.resolve({ status: "done", text: "Stale suggestion.", durationMs: 5 });
-    await expect.element(page.getByText("AI suggestion")).toBeVisible();
+    await expect.element(page.getByText("AI suggestion · Rewrite")).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Accept" })).toBeDisabled();
 
     // Regenerate issues a NEW ai_text request against the current document.
@@ -192,11 +202,80 @@ describe("selection AI in the editor", () => {
       return Promise.reject(new Error(`unexpected command in test: ${cmd}`));
     });
     await page.getByRole("button", { name: "Regenerate" }).click();
-    await expect.element(page.getByText("AI is rewriting…")).toBeVisible();
+    await expect.element(page.getByText("Rewriting…")).toBeVisible();
     second.resolve({ status: "done", text: "Fresh suggestion.", durationMs: 5 });
-    await expect.element(page.getByText("AI suggestion")).toBeVisible();
+    await expect.element(page.getByText("AI suggestion · Rewrite")).toBeVisible();
     await page.getByRole("button", { name: "Accept" }).click();
 
     expect(view.state.doc.toString()).toBe("Fresh suggestion.\n\nBeta EDITED.\n");
+  });
+
+  it("the preset menu offers all four actions", async () => {
+    const view = await setup(DOC);
+    mockCore();
+    view.dispatch({ selection: { anchor: 0, head: 17 } });
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    for (const label of ["Rewrite", "Improve writing", "Summarize", "Continue writing"]) {
+      await expect.element(page.getByRole("menuitem", { name: label })).toBeVisible();
+    }
+    expect(view.state.doc.toString()).toBe(DOC);
+  });
+
+  it("Improve writing sends the selection as context with the improve instruction", async () => {
+    const view = await setup(DOC);
+    const aiDeferred = mockCore();
+    view.dispatch({ selection: { anchor: 0, head: 17 } });
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    await pick("Improve writing");
+    await expect.element(page.getByText("Improving…")).toBeVisible();
+    aiDeferred.resolve({ status: "done", text: "Improved alpha.\n", durationMs: 5 });
+    await expect.element(page.getByText("AI suggestion · Improve writing")).toBeVisible();
+
+    const call = vi.mocked(invoke).mock.calls.find(([cmd]) => cmd === "ai_text")?.[1] as {
+      instruction: string;
+      options: { context?: string };
+    };
+    expect(call.instruction).toContain("fix grammar, clarity, and flow");
+    expect(call.options.context).toBe("Alpha paragraph.\n");
+
+    await page.getByRole("button", { name: "Accept" }).click();
+    expect(view.state.doc.toString()).toBe("Improved alpha.\n\nBeta paragraph.\n");
+  });
+
+  it("Summarize scopes to the selection only", async () => {
+    const view = await setup(DOC);
+    const aiDeferred = mockCore();
+    view.dispatch({ selection: { anchor: 0, head: 17 } });
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    await pick("Summarize");
+    aiDeferred.resolve({ status: "done", text: "A summary.\n", durationMs: 5 });
+    await expect.element(page.getByText("AI suggestion · Summarize")).toBeVisible();
+    await page.getByRole("button", { name: "Accept" }).click();
+
+    expect(view.state.doc.toString()).toBe("A summary.\n\nBeta paragraph.\n");
+  });
+
+  it("Continue writing inserts at the selection end without deleting anything", async () => {
+    const view = await setup(DOC);
+    const aiDeferred = mockCore();
+    view.dispatch({ selection: { anchor: 0, head: 17 } });
+    await page.getByRole("button", { name: "AI", exact: true }).click();
+    await pick("Continue writing");
+    aiDeferred.resolve({ status: "done", text: " Continued here.", durationMs: 5 });
+    await expect.element(page.getByText("AI suggestion · Continue writing")).toBeVisible();
+    await page.getByRole("button", { name: "Accept" }).click();
+
+    // Pure insertion: the original text is untouched, the continuation
+    // lands exactly at the former selection end.
+    expect(view.state.doc.toString()).toBe("Alpha paragraph. Continued here.\n\nBeta paragraph.\n");
+
+    // The context was the text tail before the insertion point.
+    const call = vi
+      .mocked(invoke)
+      .mock.calls.filter(([cmd]) => cmd === "ai_text")
+      .at(-1)?.[1] as {
+      options: { context?: string };
+    };
+    expect(call.options.context).toBe("Alpha paragraph.");
   });
 });
