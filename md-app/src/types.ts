@@ -84,3 +84,17 @@ export interface CommitInfo {
   author: string;
   time: number;
 }
+
+/** One unresolved internal link from the broken-links report. */
+export interface BrokenLink {
+  /** Note containing the reference. */
+  source: string;
+  /** Link target as written (dialect included: alias/fragment raw). */
+  target: string;
+  /** 1-based line of the reference in the source note. */
+  line: number;
+  /** "wiki" | "markdown". */
+  kind: string;
+  /** Original link text (alias side for wikilinks, label for markdown). */
+  text: string;
+}

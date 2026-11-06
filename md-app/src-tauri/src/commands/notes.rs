@@ -240,3 +240,38 @@ pub async fn search_notes(dir: String, query: String) -> Result<Vec<SearchHitDto
     })
     .await
 }
+
+// --- Broken internal link report ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokenLinkDto {
+    pub source: String,
+    pub target: String,
+    pub line: usize,
+    /// "wiki" | "markdown".
+    pub kind: String,
+    pub text: String,
+}
+
+/// Scan the visible notes for unresolved [[wikilinks]] and relative
+/// Markdown links. Excluded notes are neither scanned as sources nor
+/// accepted as targets.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn broken_links(dir: String) -> Result<Vec<BrokenLinkDto>, AppError> {
+    blocking(move || {
+        let vault = open_vault(&dir)?;
+        Ok(vault_core::links::broken_links(&vault)?
+            .into_iter()
+            .map(|l| BrokenLinkDto {
+                source: l.source,
+                target: l.target,
+                line: l.line,
+                kind: l.kind.as_str().to_string(),
+                text: l.text,
+            })
+            .collect())
+    })
+    .await
+}

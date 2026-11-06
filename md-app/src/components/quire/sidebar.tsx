@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   SquarePen,
+  Unlink,
   Sun,
 } from "lucide-react";
 import type { SidePanel } from "@/lib/vault";
@@ -68,6 +69,7 @@ export interface SidebarProps {
 const tabs: { id: SidePanel; label: string; icon: typeof Search }[] = [
   { id: "files", label: "Files", icon: FolderClosed },
   { id: "search", label: "Search", icon: Search },
+  { id: "links", label: "Links", icon: Unlink },
   { id: "git", label: "Sync", icon: GitBranch },
 ];
 
