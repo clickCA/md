@@ -8,7 +8,12 @@ import type { VaultFile } from "@/lib/vault";
 import { mdLivePreview, type LivePreviewOptions } from "./live-preview";
 import { MarkdownEditor } from "./note-editor";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  Channel: class {
+    onmessage: ((event: unknown) => void) | null = null;
+  },
+}));
 
 /* Live-preview rendering contract, per construct: on inactive lines the
    page reads like rendered markdown (syntax collapsed away), the raw
