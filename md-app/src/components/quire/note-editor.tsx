@@ -23,8 +23,21 @@ import { markdown, markdownKeymap, markdownLanguage } from "@codemirror/lang-mar
 import { languages } from "@codemirror/language-data";
 import { tags as t } from "@lezer/highlight";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
+import { Sparkles } from "lucide-react";
 import { fileName, type VaultFile } from "@/lib/vault";
 import { TYPOGRAPHY_EVENT } from "@/lib/typography";
+import { errorMessage } from "@/lib/ipc";
+import { pickAiProvider, runAiText, stopAi } from "@/lib/ai";
+import { readAgentProvider, type AgentProviderInfo } from "@/lib/agent";
+import {
+  captureSelection,
+  isStale,
+  normalizeSuggestion,
+  planApply,
+  REWRITE_INSTRUCTION,
+} from "@/lib/ai-selection";
+import { AiSuggestionCard, type AiPhase, type AiPhaseActive } from "./ai-suggestion";
 import { extractImages, type ImageRef, imageFiles, saveImage } from "@/lib/images";
 import { ImageViewer } from "./image-viewer";
 import { mdLivePreview } from "./live-preview";
@@ -342,6 +355,130 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
     });
   };
 
+  // ── inline AI (selection rewrite) ────────────────────────────────────
+  // The floating layer is state here, but every transition is guarded by
+  // the captured (doc, range) pair from lib/ai-selection: Accept applies
+  // only against an unchanged document, so concurrent edits can never be
+  // clobbered and a late result can never write to the wrong file.
+  const [ai, setAi] = useState<AiPhase>({ kind: "idle" });
+  const aiSessionRef = useRef(0);
+  const [selAnchor, setSelAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Mirror for the CodeMirror update listener, which is created once and
+  // would otherwise close over the first render's phase.
+  const aiRef = useRef<AiPhase>(ai);
+  aiRef.current = ai;
+
+  /** Viewport-relative anchor (inside the host) for a document position. */
+  const anchorFor = (pos: number): { x: number; y: number } | null => {
+    const view = viewRef.current;
+    const host = hostRef.current;
+    if (!view || !host) return null;
+    const coords = view.coordsAtPos(pos);
+    if (!coords) return null;
+    const rect = host.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(8, coords.left - rect.left), Math.max(8, rect.width - 340)),
+      y: Math.min(Math.max(8, coords.bottom - rect.top + 8), Math.max(8, rect.height - 80)),
+    };
+  };
+
+  const generate = async () => {
+    const view = viewRef.current;
+    if (!view || view.state.selection.main.empty) return;
+    const { from, to } = view.state.selection.main;
+    const req = captureSelection(view.state.doc.toString(), from, to, REWRITE_INSTRUCTION);
+    if (!req) return;
+    const anchor = anchorFor(from) ?? { x: 16, y: 16 };
+    // Session guard: results of a discarded request (note switch, newer
+    // request) resolve into nothing at all.
+    const session = ++aiSessionRef.current;
+    setAi({ kind: "generating", req, streamed: "", anchor });
+    try {
+      const providers = await invoke<AgentProviderInfo[]>("agent_detect");
+      const provider = pickAiProvider(providers, readAgentProvider("opencode"));
+      if (session !== aiSessionRef.current) return;
+      if (!provider) {
+        setAi({
+          kind: "unavailable",
+          hint: providers[0]?.installHint ?? "install opencode, codex, or Claude Code",
+          anchor,
+        });
+        return;
+      }
+      const result = await runAiText({
+        dir,
+        provider: provider.id,
+        instruction: req.instruction,
+        context: req.original,
+        onChunk: (t) => {
+          if (session !== aiSessionRef.current) return;
+          setAi((prev) =>
+            prev.kind === "generating" ? { ...prev, streamed: prev.streamed + t } : prev,
+          );
+        },
+      });
+      if (session !== aiSessionRef.current) return;
+      if (result.status === "cancelled") {
+        setAi({ kind: "idle" });
+        return;
+      }
+      const suggestion = normalizeSuggestion(req.original, result.text);
+      if (!suggestion) {
+        setAi({
+          kind: "unavailable",
+          hint:
+            result.status === "timeout"
+              ? "the AI timed out — try again"
+              : "the AI returned an empty reply",
+          anchor,
+        });
+        return;
+      }
+      setAi({
+        kind: "review",
+        req,
+        suggestion,
+        // Staleness is evaluated live (see the update listener below); this
+        // covers edits that happened before the reply arrived.
+        stale: isStale(req, view.state.doc.toString()),
+        anchor,
+      });
+    } catch (e) {
+      if (session === aiSessionRef.current) {
+        setAi({ kind: "unavailable", hint: errorMessage(e), anchor });
+      }
+    }
+  };
+
+  const acceptAi = () => {
+    const view = viewRef.current;
+    if (!view || ai.kind !== "review") return;
+    const plan = planApply(ai.req, view.state.doc.toString(), ai.suggestion);
+    if (!plan.ok) {
+      setAi({ ...ai, stale: true });
+      return;
+    }
+    view.dispatch({ changes: { from: plan.from, to: plan.to, insert: plan.insert } });
+    setAi({ kind: "idle" });
+    view.focus();
+  };
+
+  const rejectAi = () => {
+    aiSessionRef.current += 1;
+    setAi({ kind: "idle" });
+    viewRef.current?.focus();
+  };
+
+  const regenerateAi = () => {
+    aiSessionRef.current += 1;
+    setAi({ kind: "idle" });
+    void generate();
+  };
+
+  const cancelAi = () => {
+    void stopAi();
+  };
+
   useImperativeHandle(ref, () => ({
     jumpTo: (line) => {
       const view = viewRef.current;
@@ -446,11 +583,27 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
             ]),
           ),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) callbacks.current.onChange(update.state.doc.toString());
+            if (update.docChanged) {
+              callbacks.current.onChange(update.state.doc.toString());
+              // A review card that was fresh goes stale the moment the
+              // document moves — evaluated live, not only at Accept time.
+              const cur = aiRef.current;
+              if (
+                cur.kind === "review" &&
+                !cur.stale &&
+                isStale(cur.req, update.state.doc.toString())
+              ) {
+                setAi({ ...cur, stale: true });
+              }
+            }
             if (update.selectionSet) {
               const head = update.state.selection.main.head;
               const pos = update.state.doc.lineAt(head);
               callbacks.current.onCursor(pos.number, head - pos.from + 1);
+              // Selection affordance for inline AI: shown while a non-empty
+              // range is selected and no AI card is open.
+              const { from, to } = update.state.selection.main;
+              setSelAnchor(from < to ? anchorFor(from) : null);
             }
           }),
         ],
@@ -487,7 +640,7 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
   }, [file.content]);
 
   return (
-    <div className="h-full min-h-0">
+    <div className="relative h-full min-h-0">
       {/* Full-width host: CodeMirror owns the scroller (virtual scrolling
           requires it), so centering must live INSIDE .cm-content — a centered
           wrapper here would dock the scrollbar to the text column instead of
@@ -501,6 +654,28 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
           onNavigate={(index) => setViewer((v) => (v ? { ...v, index } : v))}
           onClose={() => setViewer(null)}
         />
+      )}
+      {/* Inline AI: affordance on selection, card anchored to the request. */}
+      {ai.kind === "idle" && selAnchor && (
+        <button
+          type="button"
+          className="absolute z-20 flex h-7 items-center gap-1 rounded-md border border-border bg-[var(--panel)] px-2 text-xs text-foreground shadow hover:bg-accent"
+          style={{ left: selAnchor.x, top: selAnchor.y }}
+          onClick={() => void generate()}
+        >
+          <Sparkles className="size-3.5 text-primary" aria-hidden /> AI rewrite
+        </button>
+      )}
+      {ai.kind !== "idle" && "anchor" in ai && (
+        <div className="absolute z-20" style={{ left: ai.anchor.x, top: ai.anchor.y }}>
+          <AiSuggestionCard
+            phase={ai as AiPhaseActive}
+            onAccept={acceptAi}
+            onReject={rejectAi}
+            onRegenerate={regenerateAi}
+            onCancel={cancelAi}
+          />
+        </div>
       )}
     </div>
   );
