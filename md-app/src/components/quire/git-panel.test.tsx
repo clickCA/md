@@ -44,21 +44,28 @@ async function renderPanel(
   opts: {
     diffPath?: string | null;
     activePath?: string | null;
+    hasRemote?: boolean;
   } = {},
 ) {
-  const { diffPath = null, activePath = "notes/alpha.md" } = opts;
+  const { diffPath = null, activePath = "notes/alpha.md", hasRemote = false } = opts;
   const onOpen = vi.fn();
   const onShowDiff = vi.fn();
   const onShowRevision = vi.fn();
   const onRestoreSnapshot = vi.fn();
   const loadNoteHistory = vi.fn().mockResolvedValue(noteHistory);
   const loadVaultHistory = vi.fn().mockResolvedValue(vaultHistory);
+  const loadBranches = vi
+    .fn()
+    .mockResolvedValue({ current: "main", branches: ["main", "feature"] });
+  const onSwitchBranch = vi.fn();
+  const onCreateBranch = vi.fn().mockResolvedValue(undefined);
   await render(
     <GitPanel
       name="Notes"
       isRepo
-      hasRemote={false}
+      hasRemote={hasRemote}
       relation="in-sync"
+      branch="main"
       head={null}
       remoteHead={null}
       changes={changes}
@@ -70,6 +77,9 @@ async function renderPanel(
       loadVaultHistory={loadVaultHistory}
       onShowRevision={onShowRevision}
       onRestoreSnapshot={onRestoreSnapshot}
+      loadBranches={loadBranches}
+      onSwitchBranch={onSwitchBranch}
+      onCreateBranch={onCreateBranch}
       onOpen={onOpen}
       onShowDiff={onShowDiff}
       diffPath={diffPath}
@@ -83,8 +93,11 @@ async function renderPanel(
     onShowDiff,
     onShowRevision,
     onRestoreSnapshot,
+    onSwitchBranch,
+    onCreateBranch,
     loadNoteHistory,
     loadVaultHistory,
+    loadBranches,
   };
 }
 
@@ -146,5 +159,36 @@ describe("GitPanel history", () => {
     expect(onRestoreSnapshot).not.toHaveBeenCalled();
     await restore.click();
     expect(onRestoreSnapshot).toHaveBeenCalledWith(vaultHistory[0].oid);
+  });
+});
+
+describe("GitPanel branches", () => {
+  it("shows the current branch in the status line", async () => {
+    await renderPanel({ hasRemote: true });
+
+    await expect.element(page.getByText("origin/main", { exact: false })).toBeVisible();
+  });
+
+  it("lists branches and switches on click", async () => {
+    const { onSwitchBranch, loadBranches } = await renderPanel();
+
+    await page.getByRole("button", { name: /Branches/ }).click();
+    expect(loadBranches).toHaveBeenCalled();
+
+    const switchTo = page.getByTitle(/refused while there are uncommitted changes/);
+    await expect.element(switchTo).toBeVisible();
+    await switchTo.click();
+    expect(onSwitchBranch).toHaveBeenCalledWith("feature");
+  });
+
+  it("creates a branch without switching", async () => {
+    const { onCreateBranch, onSwitchBranch } = await renderPanel();
+
+    await page.getByRole("button", { name: "New branch" }).click();
+    await page.getByRole("textbox", { name: "New branch name" }).fill("drafts");
+    await page.getByRole("button", { name: "Create" }).click();
+
+    expect(onCreateBranch).toHaveBeenCalledWith("drafts");
+    expect(onSwitchBranch).not.toHaveBeenCalled();
   });
 });

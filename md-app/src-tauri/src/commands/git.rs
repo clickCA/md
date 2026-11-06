@@ -16,6 +16,8 @@ use crate::error::AppError;
 #[serde(rename_all = "camelCase")]
 pub struct GitStateDto {
     pub remote_url: Option<String>,
+    /// Branch HEAD points at; commits and pushes follow it.
+    pub branch: String,
     pub head: Option<String>,
     pub remote: Option<String>,
     pub relation: String,
@@ -23,8 +25,9 @@ pub struct GitStateDto {
 
 fn git_state(vault: &Vault) -> Result<GitStateDto, AppError> {
     let remote_url = vault.git.remote_url()?;
+    let branch = vault.git.current_branch()?;
     let head = vault.git.head_oid()?;
-    let remote = vault.git.remote_main_oid()?;
+    let remote = vault.git.remote_branch_oid(&branch)?;
     let relation = if remote_url.is_none() {
         "no-remote".to_string()
     } else if remote.is_none() && head.is_none() {
@@ -48,6 +51,7 @@ fn git_state(vault: &Vault) -> Result<GitStateDto, AppError> {
     };
     Ok(GitStateDto {
         remote_url,
+        branch,
         head,
         remote,
         relation,
@@ -231,4 +235,54 @@ fn revision_from(path: &str, oid: &str, change: &str) -> Result<history::NoteRev
         change,
         path: path.to_string(),
     })
+}
+
+// --- Branch management ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchesDto {
+    pub current: String,
+    pub branches: Vec<String>,
+}
+
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_branches(dir: String) -> Result<BranchesDto, AppError> {
+    super::blocking(move || {
+        let vault = open_vault(&dir)?;
+        Ok(BranchesDto {
+            current: vault.git.current_branch()?,
+            branches: vault.git.list_branches()?,
+        })
+    })
+    .await
+}
+
+/// Create a branch at the current head (like `git branch` — no switch).
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_branch_create(dir: String, name: String) -> Result<BranchesDto, AppError> {
+    super::blocking(move || {
+        let vault = open_vault(&dir)?;
+        vault.create_branch(&name)?;
+        Ok(BranchesDto {
+            current: vault.git.current_branch()?,
+            branches: vault.git.list_branches()?,
+        })
+    })
+    .await
+}
+
+/// Switch branches. Refused while the working tree is dirty — the user
+/// saves and syncs first; nothing is ever lost to a switch.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_branch_switch(dir: String, name: String) -> Result<GitStateDto, AppError> {
+    super::blocking(move || {
+        let vault = open_vault(&dir)?;
+        vault.switch_branch(&name)?;
+        git_state(&vault)
+    })
+    .await
 }
