@@ -6,12 +6,14 @@ import type { HistoryEntry } from "@/types";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
 import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
+import type { BrokenLink } from "@/types";
 import { AgentPanel } from "./agent-panel";
 import { CommandPalette, type PaletteCommand } from "./command-palette";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
 import { GitPanel } from "./git-panel";
 import { Inspector } from "./inspector";
+import { LinksPanel } from "./links-panel";
 import { MarkdownEditor, type EditorHandle } from "./note-editor";
 import { MarkdownPreview } from "./note-preview";
 import { NoteHeader } from "./note-header";
@@ -68,6 +70,11 @@ export function Workspace({
   } = vault;
 
   const [panel, setPanel] = useState<SidePanel>("files");
+  // Broken-link report, scanned lazily when the Links panel opens.
+  const [linksReport, setLinksReport] = useState<BrokenLink[] | null>(null);
+  const [linksLoading, setLinksLoading] = useState(false);
+  /** Cross-note jump: open then scroll to this line once the editor mounts. */
+  const pendingJump = useRef<{ path: string; line: number } | null>(null);
   // Note queued for deletion from the file-tree context menu; non-null opens
   // the confirmation modal.
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -153,6 +160,16 @@ export function Workspace({
     stateTimer.current = setTimeout(() => setContent(path, content), 250);
   };
 
+  // Deferred cross-note jump: the target editor mounts in the same commit,
+  // and child effects run first, so the view is ready when this fires.
+  useEffect(() => {
+    const j = pendingJump.current;
+    if (j && activeFile?.path === j.path) {
+      pendingJump.current = null;
+      editorRef.current?.jumpTo(j.line);
+    }
+  }, [activeFile]);
+
   const titles = useMemo(() => new Map(files.map((f) => [fileName(f.path), f.path])), [files]);
   const paths = useMemo(() => new Set(files.map((f) => f.path)), [files]);
   const diffFile = useMemo(
@@ -207,7 +224,23 @@ export function Workspace({
   const toggleMode = () => setMode((m) => (m === "edit" ? "preview" : "edit"));
   const showPanel = (next: SidePanel) => {
     setPanel(next);
+    if (next === "links") scanLinks();
     showSidebar();
+  };
+
+  const scanLinks = () => {
+    if (linksLoading) return;
+    setLinksLoading(true);
+    void vault
+      .brokenLinks()
+      .then((r) => setLinksReport(r))
+      .finally(() => setLinksLoading(false));
+  };
+
+  /** Open a note and jump to a line once its editor is mounted. */
+  const openAt = (path: string, line: number) => {
+    openNote(path);
+    pendingJump.current = { path, line };
   };
 
   // Link targets come in several dialects: wikilinks ("Note",
@@ -419,6 +452,14 @@ export function Workspace({
         />
       )}
       {panel === "search" && <SearchPanel onOpen={openNote} search={vault.search} />}
+      {panel === "links" && (
+        <LinksPanel
+          report={linksReport}
+          loading={linksLoading}
+          onRescan={scanLinks}
+          onOpenLink={openAt}
+        />
+      )}
       {panel === "git" && (
         <GitPanel
           name={vault.name}

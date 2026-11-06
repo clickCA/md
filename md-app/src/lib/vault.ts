@@ -73,7 +73,7 @@ export type GitStatus = "modified" | "untracked" | "clean";
 /** "edit" = inline live preview; "preview" = fully rendered reading view */
 export type ViewMode = "edit" | "preview";
 
-export type SidePanel = "files" | "search" | "git";
+export type SidePanel = "files" | "search" | "links" | "git";
 
 export function fileName(path: string) {
   return path.split("/").pop()!.replace(/\.md$/, "");

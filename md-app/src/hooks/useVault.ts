@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   Branches,
+  BrokenLink,
   Creds,
   CommitInfo,
   GitState,
@@ -444,6 +445,15 @@ export function useVault(dir: string) {
     [dir, run, refresh, scheduleAutoSync],
   );
 
+  /** Broken internal links across the visible notes. */
+  const brokenLinks = useCallback(async (): Promise<BrokenLink[]> => {
+    try {
+      return await invoke<BrokenLink[]>("broken_links", { dir });
+    } catch {
+      return [];
+    }
+  }, [dir]);
+
   /** Local branches of the vault. */
   const loadBranches = useCallback(async (): Promise<Branches> => {
     try {
@@ -515,6 +525,7 @@ export function useVault(dir: string) {
     noteRevision,
     restoreNote,
     restoreSnapshot,
+    brokenLinks,
     loadBranches,
     createBranch,
     switchBranch,
