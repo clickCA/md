@@ -64,8 +64,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: "md v__VERSION__"
+          # the pushed tag decides the release — never derive it from the app
+          # version (v__VERSION__), so pre-release tags like v0.1.0-alpha.1
+          # get their bundles instead of spawning a full v0.1.0 release
+          tagName: ${{ github.ref_name }}
+          releaseName: "md ${{ github.ref_name }}"
           releaseDraft: false
-          prerelease: false
+          prerelease: true
           includeUpdaterJson: false
