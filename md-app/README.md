@@ -37,6 +37,14 @@ cargo build --release -p md-app   # from the repo root → target/release/md-app
    conflict copies), pushes; the status panel shows head/remote oids, the
    journal trail (`fetching → merging → committing → pushing`), and any
    conflict report
+4. **AI agent** (`Ctrl Shift A`, or the ✨ button in the title bar) — a right-side
+   panel that runs your own coding-agent CLI (**opencode**, **Claude Code**, or
+   **codex**) against the vault folder and streams its output live. Pick a
+   provider, type a prompt, review what it changed as clickable chips (or in the
+   Source control panel), and sync normally. Auth comes from the CLI itself — you
+   must have signed in to it from a terminal once; Quire never stores keys.
+   "New session" restarts continuity; "Auto-approve edits" controls the agent's
+   permission mode.
 
 ## Tauri commands (src-tauri/src/lib.rs)
 
@@ -47,6 +55,12 @@ cargo build --release -p md-app   # from the repo root → target/release/md-app
 | `vault_sync(dir)`                       | full sync cycle → action + conflicts                            |
 | `note_read / note_write / note_delete`  | note CRUD                                                       |
 | `vault_path(dir, path)`                 | absolute path of a vault-relative file (reveal in file manager) |
+| `agent_detect()`                        | which agent CLIs (opencode/codex/claude) are on PATH            |
+| `agent_run(dir, provider, …)`           | run one agent turn, streaming output to the panel               |
+| `agent_stop()`                          | cancel the in-flight agent run                                  |
+
+The full agent wire contract (event shape, options, result, and the non-interactive
+flags each provider gets) is in `docs/api.md` → _Coding agent_.
 
 ## Mobile (next milestone)
 

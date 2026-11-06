@@ -5,12 +5,14 @@
 //! - [`notes`] — note CRUD, per-note git status, search, folders
 //! - [`git`]   — git state + explicit user-triggered git actions
 //! - [`fsx`]   — binary/file access (images, absolute paths)
+//! - [`agent`] — coding-agent CLI integration (opencode/codex/Claude Code)
 //! - [`dto`]   — shared wire types (camelCase) + vault status assembly
 //!
 //! The full contract is documented in `docs/api.md`. Command names,
 //! argument names (camelCase) and DTO shapes are UI-visible API: change them
 //! in lockstep with `md-app/src/**` or not at all.
 
+pub mod agent;
 pub mod dto;
 pub mod fsx;
 pub mod git;
