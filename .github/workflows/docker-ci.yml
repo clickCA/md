@@ -1,0 +1,56 @@
+# Build & publish the CI builder image (docker/ci/Dockerfile) to GHCR.
+#
+# The image bakes in Tauri v2's Linux build prerequisites so the project
+# workflows (ci.yml, release.yml) run their Linux legs inside it instead of
+# `sudo apt-get update && apt-get install ...` on every run.
+#
+# Rebuilds when the Dockerfile or this workflow changes on main; can also be
+# run on demand from the Actions tab ("CI builder image").
+
+name: CI builder image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/docker-ci.yml"
+      - "docker/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-ci
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    name: Build & push md-ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      # CI owns caching & environment setup; make owns the command definitions
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/ci
+          push: true
+          # GHCR package names must be lowercase — the owner (clickCA) is
+          # written lowercase on purpose.
+          tags: |
+            ghcr.io/clickca/md-ci:latest
+            ghcr.io/clickca/md-ci:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

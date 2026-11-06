@@ -8,6 +8,11 @@ plain files; syncing is any standard git remote; conflicts become conflict-copie
 
 - Every canonical invocation is a Makefile target. Do not invent parallel scripts;
   add/extend a target instead, and keep it in sync with CI (`.github/workflows/`).
+- **Linux CI deps live in `docker/ci/Dockerfile`** (the `md-ci` builder image,
+  rebuilt by `docker-ci.yml` on `main`) — the Rust job and the release Linux leg
+  run inside it, so there is **no apt on the runner**. Add Linux packages there,
+  never as a new apt step. Build it locally with `make docker-ci`.
+  See `docs/adr/2026-11-06-ci-builder-image.md`.
 - Canonical gates (what CI runs, what "done" means):
 
   | Gate | Target | Backend |

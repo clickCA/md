@@ -18,7 +18,10 @@
    ```
 4. **The Release workflow builds everything** — Windows (MSI/NSIS), macOS
    (universal `.dmg`), Linux (deb/rpm/AppImage) — and attaches them to a
-   GitHub **Pre-release** named after the tag.
+   GitHub **Pre-release** named after the tag. Linux builds run inside the
+   `md-ci` builder image (deps baked in — see `docker/ci/Dockerfile` and
+   ADR 2026-11-06); if a Linux toolchain/dep bump is needed, change that
+   Dockerfile, merge, and CI rebuilds the image automatically.
 5. **Android APK** — built locally from the same commit: `make android`,
    then upload to the release as `md-app-android-arm64.apk`.
 6. **Point the distribution surfaces at the new tag**:
