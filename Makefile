@@ -16,10 +16,14 @@ SHELL := /usr/bin/env bash
 PNPM  ?= pnpm
 CARGO ?= cargo
 
+BENCH_DIR   ?= /tmp/quire-bench
+BENCH_NOTES ?= 2000
+BENCH_WORDS ?= 120
+
 .PHONY: help setup dev dev-landing lint lint-js lint-rust \
         format format-js format-rust format-check format-check-js format-check-rust \
         typecheck test test-js test-rust build build-js build-landing build-rust \
-        docker-ci android android-log pacman-publish check clean
+        docker-ci android android-log pacman-publish bench check clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -83,6 +87,12 @@ build-rust: ## Compile the Rust workspace
 
 docker-ci: ## Build the CI builder image (baked Tauri Linux deps) — used by ci.yml / release.yml
 	docker build -t ghcr.io/clickca/md-ci:latest ./docker/ci
+
+bench: ## Large-workspace perf snapshot (release; NOT part of make test)
+	rm -rf $(BENCH_DIR)
+	$(CARGO) run --release -q -p vault-core --bin vault-cli -- init-remote $(BENCH_DIR)/remote.git
+	$(CARGO) run --release -q -p vault-core --bin vault-cli -- init $(BENCH_DIR)/vault $(BENCH_DIR)/remote.git
+	$(CARGO) run --release -q -p vault-core --bin vault-cli -- bench $(BENCH_DIR)/vault $(BENCH_NOTES) $(BENCH_WORDS)
 
 pacman-publish: ## Refresh pacman repo (md-repo) from the latest release
 	packaging/arch/publish.sh $(TAG)
