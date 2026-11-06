@@ -34,17 +34,31 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 | Command            | Arguments                     | Returns                                              |
 | ------------------ | ----------------------------- | ---------------------------------------------------- |
 | `default_vault_dir`| —                             | `string` — absolute default vault dir (created)      |
+| `vaults_home`      | —                             | `string` — absolute app-sandboxed vaults container (created); where mobile managed vaults live |
+| `vault_list`       | —                             | `VaultInfo[]` — each vault under the sandboxed home  |
+| `vault_clone`      | `url`, `name?`, `credentials?`| `VaultInfo` — clone an http(s) git remote into the sandbox |
 | `vault_probe`      | `dir`                         | `Probe { exists, isVault, remoteUrl?, noteCount? }`  |
 | `vault_make`       | `dir`, `remoteUrl?`           | `Status` — opens or creates the vault, sets remote   |
 | `vault_status`     | `dir`                         | `Status`                                             |
 | `vault_sync`       | `dir`, `credentials?`         | `Sync { action, head?, remote?, conflicts[] }`       |
 
 `Status = { root, head?, remoteMain?, pending, conflicts: Conflict[], lastRun: Journal? }`
+`VaultInfo = { name, dir, remoteUrl?, noteCount? }`
 
 - `Conflict = { path, conflictCopy, winner, at }`
 - `Journal = { id, startedAt, finishedAt?, outcome?, events: [state, at][] }`
 - `vault_sync` runs one idempotent cycle: commit pending → fetch → merge → push.
   It is **user-triggered**; there is no background auto-sync (deliberate, see ADR).
+- `vault_clone` is create-with-remote + one clone cycle (fetch → materialize) into
+  `<app data>/vaults/<name>`. `name` is optional — the backend derives a slug from
+  the URL (`owner/repo.git` → `owner-repo`, sanitized). SSH remotes are rejected
+  (`invalid-input`); HTTPS only, because mobile has no ssh-agent. An *empty* remote
+  (a repo with no commits) clones successfully the way `git clone` does. Auth
+  failures surface as `auth` so the UI prompts for credentials and retries.
+- **Mobile vaults:** desktop keeps the single `default_vault_dir` + native folder
+  picker. On Android/iOS the app is sandboxed (scoped storage forbids raw-path
+  access; SAF `content://` URIs are unusable by the std::fs engine), so the UI
+  uses `vaults_home`/`vault_list`/`vault_clone` and never shows a folder dialog.
 - **Threading:** every command that touches disk, git, or SQLite is `async` and
   runs on the async runtime's blocking pool (`commands::blocking`). Non-async
   Tauri commands execute inline on the main thread — a slow fetch there would
@@ -86,8 +100,12 @@ leaves the vault root.
 `relation ∈ no-remote | empty | not-published | remote-only | in-sync | ahead | behind | diverged | unrelated | unknown`
 
 `action ∈ push | take-remote | force-publish` — explicit, user-triggered operations.
-`credentials = { username, password }` is used only for the duration of the call and is
-never persisted or logged.
+`credentials = { username, password }` is optional. When omitted on an https
+remote, the engine first consults git's configured credential helpers (e.g. the
+libsecret keychain on Linux) and only surfaces `code: "auth"` if nothing usable
+is stored, so a token already saved for `git push`/`git fetch` is reused without
+the dialog. Supplied credentials are used only for the duration of the call and
+are never persisted or logged.
 
 ## Boundary rules
 

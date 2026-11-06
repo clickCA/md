@@ -5,5 +5,5 @@ pub mod merge;
 pub mod sync;
 pub mod vault;
 
-pub use sync::{sync, SyncOutcome};
+pub use sync::{clone_with, sync, SyncOutcome};
 pub use vault::Vault;
