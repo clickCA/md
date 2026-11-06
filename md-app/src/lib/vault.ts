@@ -17,6 +17,31 @@ export function short(oid: string | null): string {
   return oid ? oid.slice(0, 7) : "—";
 }
 
+/** Suggested vault name from a git URL (`owner/repo.git` → `owner-repo`).
+    Mirrors the Rust `slug_from_url` shape for the clone dialog placeholder;
+    the backend still sanitizes whatever the user actually submits. */
+export function remoteName(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  const segs = trimmed.split("/").filter(Boolean);
+  const last = (segs.pop() ?? "").replace(/\.git$/, "");
+  if (!last) return "";
+  const owner = segs[segs.length - 1];
+  return owner ? `${owner}-${last}` : last;
+}
+
+/** Filesystem-safe vault name for the mobile create flow. `vault_make` takes
+    a raw path (by design, for the desktop folder picker), so the mobile UI
+    sanitizes the user-typed name before joining it under the vaults home —
+    mirrors the backend `safe_name` so both entry points behave identically. */
+export function sanitizeVaultName(raw: string): string {
+  const s = raw
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-_.]+|[-_.]+$/g, "");
+  return s || "vault";
+}
+
 /** Human "time ago" from an epoch-seconds string (as stored in the sync journal). */
 export function relTime(secs: string | null | undefined, now = Date.now()): string {
   if (!secs) return "never";

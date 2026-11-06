@@ -47,3 +47,11 @@ export interface Probe {
   remoteUrl: string | null;
   noteCount: number | null;
 }
+
+/** A managed vault inside the app-sandboxed vaults home (mobile). */
+export interface VaultInfo {
+  name: string;
+  dir: string;
+  remoteUrl: string | null;
+  noteCount: number | null;
+}
