@@ -9,7 +9,12 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import "../../index.css";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  Channel: class {
+    onmessage: ((event: unknown) => void) | null = null;
+  },
+}));
 
 const noop = () => {};
 
