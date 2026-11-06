@@ -11,7 +11,7 @@ import {
   ShieldAlert,
   Upload,
 } from "lucide-react";
-import type { CommitInfo, HistoryEntry, Journal } from "@/types";
+import type { Branches, CommitInfo, HistoryEntry, Journal } from "@/types";
 import { type VaultFile, eventLabel, fileName, relTime, statusOf } from "@/lib/vault";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
@@ -21,6 +21,8 @@ export type GitPanelProps = {
   isRepo: boolean;
   hasRemote: boolean;
   relation: string;
+  /** Branch HEAD points at; commits and pushes follow it. */
+  branch: string;
   head: string | null;
   remoteHead: string | null;
   changes: VaultFile[];
@@ -35,6 +37,9 @@ export type GitPanelProps = {
   onShowRevision: (entry: HistoryEntry) => void;
   /** Vault-level snapshot restore (two-step confirm in the panel). */
   onRestoreSnapshot: (oid: string) => void;
+  loadBranches: () => Promise<Branches>;
+  onSwitchBranch: (name: string) => void;
+  onCreateBranch: (name: string) => Promise<void>;
   onOpen: (path: string) => void;
   /** Open the note's uncommitted changes in the diff viewer. */
   onShowDiff: (path: string) => void;
@@ -52,6 +57,7 @@ export function GitPanel({
   isRepo,
   hasRemote,
   relation,
+  branch,
   head,
   remoteHead,
   changes,
@@ -63,6 +69,9 @@ export function GitPanel({
   loadVaultHistory,
   onShowRevision,
   onRestoreSnapshot,
+  loadBranches,
+  onSwitchBranch,
+  onCreateBranch,
   onOpen,
   onShowDiff,
   diffPath,
@@ -114,7 +123,8 @@ export function GitPanel({
         <div className="flex flex-col gap-1 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
           <div className="flex items-center justify-between">
             <span className="truncate" title={head ?? ""}>
-              <span className="text-foreground">main</span> {short(head)}
+              <GitBranch className="mr-1 inline size-3" aria-hidden />
+              <span className="text-foreground">{branch}</span> {short(head)}
             </span>
             <span className="flex items-center gap-1" title={`relation: ${relation}`}>
               {relation === "ahead" && <ArrowUp className="size-3" aria-hidden />}
@@ -122,8 +132,21 @@ export function GitPanel({
               <span className="text-foreground">{relation}</span>
             </span>
           </div>
-          {hasRemote && <div className="truncate">origin/main {short(remoteHead)}</div>}
+          {hasRemote && (
+            <div className="truncate">
+              origin/{branch} {short(remoteHead)}
+            </div>
+          )}
         </div>
+
+        <BranchesSection
+          key={branch}
+          branch={branch}
+          loadBranches={loadBranches}
+          onSwitchBranch={onSwitchBranch}
+          onCreateBranch={onCreateBranch}
+          disabled={busy}
+        />
 
         {hasRemote ? (
           <div className="grid grid-cols-2 gap-2">
@@ -382,6 +405,155 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+/** Branch picker (plan P2 "Branches"): switch with a clean tree only —
+    the backend refuses a dirty vault, so nothing is ever lost. Creating a
+    branch never switches; loading is event-driven (open / create). */
+function BranchesSection({
+  branch,
+  loadBranches,
+  onSwitchBranch,
+  onCreateBranch,
+  disabled,
+}: {
+  branch: string;
+  loadBranches: () => Promise<Branches>;
+  onSwitchBranch: (name: string) => void;
+  onCreateBranch: (name: string) => Promise<void>;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [names, setNames] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setError(null);
+    try {
+      setNames((await loadBranches()).branches);
+    } catch {
+      setError("Could not load branches.");
+    }
+  };
+
+  const create = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    try {
+      await onCreateBranch(name);
+      setNewName("");
+      setCreating(false);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create the branch.");
+    }
+  };
+
+  return (
+    <section>
+      <div className="flex h-6 items-center justify-between px-2">
+        <button
+          type="button"
+          onClick={() => {
+            const next = !open;
+            setOpen(next);
+            if (next && names.length === 0) void load();
+          }}
+          aria-expanded={open}
+          className="flex h-5 items-center gap-1.5 rounded px-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase hover:bg-accent hover:text-foreground"
+        >
+          <GitBranch className="size-3" aria-hidden />
+          Branches
+          <span className="font-mono normal-case">{branch}</span>
+        </button>
+        <IconButton
+          label={creating ? "Cancel new branch" : "New branch"}
+          onClick={() => setCreating((c) => !c)}
+          disabled={disabled}
+        >
+          <span className="font-mono text-[13px] leading-none" aria-hidden>
+            {creating ? "\u00d7" : "+"}
+          </span>
+        </IconButton>
+      </div>
+
+      {(open || creating) && (
+        <div className="px-1 pb-1">
+          {creating && (
+            <div className="mb-1 flex items-center gap-1 px-1">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void create();
+                }}
+                placeholder="new-branch-name"
+                aria-label="New branch name"
+                autoFocus
+                className="h-6 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono text-[11px] outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => void create()}
+                disabled={disabled || !newName.trim()}
+                className="flex h-6 shrink-0 items-center rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+              >
+                Create
+              </button>
+            </div>
+          )}
+          {error && (
+            <p className="px-1 py-0.5 text-[11px] text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          {open &&
+            (names.length === 0 ? (
+              <p className="px-1 py-0.5 text-[11px] text-muted-foreground" role="status">
+                {error ? null : "Loading\u2026"}
+              </p>
+            ) : (
+              <ul>
+                {names.map((n) => (
+                  <li key={n}>
+                    <button
+                      type="button"
+                      onClick={() => n !== branch && onSwitchBranch(n)}
+                      disabled={disabled || n === branch}
+                      title={
+                        n === branch
+                          ? "current branch"
+                          : "switch \u2014 refused while there are uncommitted changes"
+                      }
+                      className={cn(
+                        "flex h-6 w-full items-center gap-2 rounded-md px-1 text-left text-[12px] hover:bg-sidebar-accent disabled:opacity-60",
+                        n === branch ? "font-medium text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full",
+                          n === branch ? "bg-primary" : "bg-transparent",
+                        )}
+                        aria-hidden
+                      />
+                      <span className="truncate font-mono">{n}</span>
+                      {n === branch && (
+                        <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                          current
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ))}
+        </div>
+      )}
+    </section>
   );
 }
 
