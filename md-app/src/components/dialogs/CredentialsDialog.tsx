@@ -8,9 +8,16 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSignIn: (creds: Creds) => void;
+  /** What the credentials gate — changes the heading/button copy. */
+  purpose?: "sync" | "clone";
 }
 
-export default function CredentialsDialog({ open, onOpenChange, onSignIn }: Props) {
+export default function CredentialsDialog({
+  open,
+  onOpenChange,
+  onSignIn,
+  purpose = "sync",
+}: Props) {
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
 
@@ -23,7 +30,7 @@ export default function CredentialsDialog({ open, onOpenChange, onSignIn }: Prop
   return (
     <Modal open={open} onOpenChange={onOpenChange} className="top-1/4 w-96 max-w-[92vw]">
       <Dialog.Title className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
-        <KeyRound size={14} /> Sign in to sync
+        <KeyRound size={14} /> {purpose === "clone" ? "Sign in to clone" : "Sign in to sync"}
       </Dialog.Title>
       <p className="mb-3 text-xs text-muted-foreground">
         The remote needs credentials. For GitHub, use your username and a fine-grained personal
@@ -53,7 +60,7 @@ export default function CredentialsDialog({ open, onOpenChange, onSignIn }: Prop
           disabled={!user || !pass}
           className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90 disabled:opacity-40"
         >
-          Sign in &amp; sync
+          {purpose === "clone" ? "Sign in & clone" : "Sign in & sync"}
         </button>
       </div>
     </Modal>

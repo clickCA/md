@@ -1,25 +1,40 @@
-import { FileText, FolderOpen, FolderPlus, Moon, Sun } from "lucide-react";
+import { FileText, FolderOpen, FolderPlus, GitFork, List, Moon, Sun } from "lucide-react";
 
 type Props = {
   busy: boolean;
   dark: boolean;
-  /** Resolved default vault location, shown as the one-click target. */
+  isMobile: boolean;
+  /** Desktop: resolved default vault location, shown as the one-click target. */
   defaultDir: string;
+  /** Mobile: app-sandboxed vaults home container. */
+  vaultsHome: string;
+  /** Mobile: existing sandboxed vaults (opts the picker button in). */
+  vaultCount: number;
   onToggleTheme: () => void;
+  /** Desktop: native folder picker / one-click create at the default dir. */
   onOpenFolder: () => void;
   onCreateVault: () => void;
+  /** Mobile: open the create/clone dialog (no folder picker exists). */
+  onCreateRequested: () => void;
+  onCloneRequested: () => void;
+  onListVaults: () => void;
 };
 
-/** In-app first-run screen: what the desktop app shows when the boot folder
-    isn't a vault yet. The marketing page lives in the standalone `landing`
-    workspace package — this is only the utility front door. */
+/** In-app first-run screen. Desktop: open/make a vault at a real path.
+    Mobile: the app is sandboxed, so it's a vault manager — create, clone, pick. */
 export function Welcome({
   busy,
   dark,
+  isMobile,
   defaultDir,
+  vaultsHome,
+  vaultCount,
   onToggleTheme,
   onOpenFolder,
   onCreateVault,
+  onCreateRequested,
+  onCloneRequested,
+  onListVaults,
 }: Props) {
   return (
     <div className="relative grid h-dvh place-items-center">
@@ -42,28 +57,73 @@ export function Welcome({
         <p className="max-w-xs text-pretty text-sm leading-relaxed text-muted-foreground">
           A local-first markdown vault — plain files on disk, git-backed sync underneath.
         </p>
-        <div className="mt-6 flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onCreateVault}
-            disabled={busy}
-            className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
-          >
-            <FolderPlus className="size-4" aria-hidden />
-            Create new vault
-          </button>
-          <button
-            type="button"
-            onClick={onOpenFolder}
-            disabled={busy}
-            className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-40"
-          >
-            <FolderOpen className="size-4" aria-hidden />
-            Open folder…
-          </button>
-        </div>
+
+        {isMobile ? (
+          <div className="mt-6 flex w-56 flex-col items-stretch gap-2">
+            <button
+              type="button"
+              onClick={onCreateRequested}
+              disabled={busy}
+              className="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
+            >
+              <FolderPlus className="size-4" aria-hidden />
+              Create new vault
+            </button>
+            <button
+              type="button"
+              onClick={onCloneRequested}
+              disabled={busy}
+              className="flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-40"
+            >
+              <GitFork className="size-4" aria-hidden />
+              Clone from URL…
+            </button>
+            {vaultCount > 0 && (
+              <button
+                type="button"
+                onClick={onListVaults}
+                disabled={busy}
+                className="flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-40"
+              >
+                <List className="size-4" aria-hidden />
+                Vaults ({vaultCount})
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="mt-6 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onCreateVault}
+              disabled={busy}
+              className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
+            >
+              <FolderPlus className="size-4" aria-hidden />
+              Create new vault
+            </button>
+            <button
+              type="button"
+              onClick={onOpenFolder}
+              disabled={busy}
+              className="flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-40"
+            >
+              <FolderOpen className="size-4" aria-hidden />
+              Open folder…
+            </button>
+          </div>
+        )}
+
         <p className="mt-4 font-mono text-xs text-muted-foreground">
-          first vault lands in <span className="text-foreground/80">{defaultDir}</span>
+          {isMobile ? (
+            <>
+              vaults are saved on this device in{" "}
+              <span className="break-all text-foreground/80">{vaultsHome || "app storage"}</span>
+            </>
+          ) : (
+            <>
+              first vault lands in <span className="text-foreground/80">{defaultDir}</span>
+            </>
+          )}
         </p>
       </div>
     </div>

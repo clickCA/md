@@ -8,12 +8,15 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+# Transport note: reqwest + rustls (pure Rust) instead of libcurl. curl-sys
+# pulls no TLS backend on this target and won't do HTTPS reliably on Android;
+# reqwest+rustls cross-compiles and runs cleanly there (clone-from-URL needs it).
 gix = { version = "0.90", features = [
     "revision",
     "worktree-mutation",
     "extras",
     "blocking-network-client",
-    "blocking-http-transport-curl",
+    "blocking-http-transport-reqwest-rust-tls",
 ] }
 imara-diff = "0.2"
 git2 = { version = "0.21", features = ["cred"] }

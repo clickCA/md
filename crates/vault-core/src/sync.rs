@@ -36,6 +36,35 @@ pub fn sync(vault: &Vault) -> Result<SyncOutcome> {
     sync_with(vault, None)
 }
 
+/// Clone-like initial pull for a vault that was just created with a remote set:
+/// one full sync cycle (fetch → materialize), tolerating an *empty* remote the
+/// way `git clone` does. A repo with no commits yet is a valid clone target —
+/// the vault stays empty with the remote configured instead of failing on the
+/// `(None, None)` "nothing to sync" branch.
+///
+/// Auth/transport failures propagate unchanged (`AuthRequired` → typed auth).
+pub fn clone_with(
+    vault: &Vault,
+    creds: Option<&crate::git_backend::Credentials>,
+) -> Result<SyncOutcome> {
+    match sync_with(vault, creds) {
+        Ok(outcome) => Ok(outcome),
+        Err(e) => {
+            let empty_remote =
+                vault.git.head_oid()?.is_none() && vault.git.remote_main_oid()?.is_none();
+            if empty_remote {
+                return Ok(SyncOutcome {
+                    action: "clone (empty remote)".into(),
+                    head: None,
+                    remote: None,
+                    conflicts: Vec::new(),
+                });
+            }
+            Err(e)
+        }
+    }
+}
+
 pub fn sync_with(
     vault: &Vault,
     creds: Option<&crate::git_backend::Credentials>,
