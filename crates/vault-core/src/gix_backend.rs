@@ -1,4 +1,4 @@
-use crate::git_backend::{Credentials, GitBackend, Oid, Tree, TreeEntry};
+use crate::git_backend::{CommitMeta, Credentials, GitBackend, Oid, Tree, TreeEntry};
 use anyhow::{anyhow, Context, Result};
 use gix::actor::Signature;
 use gix::bstr::ByteSlice;
@@ -353,6 +353,18 @@ impl GitBackend for GixBackend {
         let obj = self.repo.find_object(from_hex(commit)?)?;
         let commit = obj.try_into_commit()?;
         Ok(commit.time()?.seconds)
+    }
+
+    fn commit_info(&self, commit: &Oid) -> Result<CommitMeta> {
+        let obj = self.repo.find_object(from_hex(commit)?)?;
+        let c = obj.try_into_commit()?;
+        let author = c.author()?;
+        Ok(CommitMeta {
+            oid: commit.clone(),
+            message: String::from_utf8_lossy(c.message_raw()?).to_string(),
+            author: author.name.to_str_lossy().to_string(),
+            time: c.time()?.seconds,
+        })
     }
 
     fn read_commit_parents(&self, commit: &Oid) -> Result<Vec<Oid>> {

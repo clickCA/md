@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
+import type { CommitInfo, HistoryEntry } from "@/types";
 import type { VaultFile } from "@/lib/vault";
 import { GitPanel } from "./git-panel";
 
@@ -11,9 +12,47 @@ const changes: VaultFile[] = [
   { path: "beta.md", content: "# Beta\n", committed: null },
 ];
 
-async function renderPanel(diffPath: string | null = null) {
+const noteHistory: HistoryEntry[] = [
+  {
+    oid: "aaaaaaaaaaaaaaaaaaaa",
+    message: "auto: pending changes",
+    author: "tester",
+    time: Math.floor(Date.now() / 1000) - 60,
+    change: "modified",
+    path: "notes/alpha.md",
+  },
+  {
+    oid: "bbbbbbbbbbbbbbbbbbbb",
+    message: "auto: pending changes",
+    author: "tester",
+    time: Math.floor(Date.now() / 1000) - 3600,
+    change: "added",
+    path: "notes/alpha.md",
+  },
+];
+
+const vaultHistory: CommitInfo[] = [
+  {
+    oid: "cccccccccccccccccccc",
+    message: "auto: pending changes",
+    author: "tester",
+    time: Math.floor(Date.now() / 1000) - 30,
+  },
+];
+
+async function renderPanel(
+  opts: {
+    diffPath?: string | null;
+    activePath?: string | null;
+  } = {},
+) {
+  const { diffPath = null, activePath = "notes/alpha.md" } = opts;
   const onOpen = vi.fn();
   const onShowDiff = vi.fn();
+  const onShowRevision = vi.fn();
+  const onRestoreSnapshot = vi.fn();
+  const loadNoteHistory = vi.fn().mockResolvedValue(noteHistory);
+  const loadVaultHistory = vi.fn().mockResolvedValue(vaultHistory);
   await render(
     <GitPanel
       name="Notes"
@@ -26,6 +65,11 @@ async function renderPanel(diffPath: string | null = null) {
       sync="idle"
       lastRun={null}
       lastSyncError={null}
+      activePath={activePath}
+      loadNoteHistory={loadNoteHistory}
+      loadVaultHistory={loadVaultHistory}
+      onShowRevision={onShowRevision}
+      onRestoreSnapshot={onRestoreSnapshot}
       onOpen={onOpen}
       onShowDiff={onShowDiff}
       diffPath={diffPath}
@@ -34,7 +78,14 @@ async function renderPanel(diffPath: string | null = null) {
       onInit={noop}
     />,
   );
-  return { onOpen, onShowDiff };
+  return {
+    onOpen,
+    onShowDiff,
+    onShowRevision,
+    onRestoreSnapshot,
+    loadNoteHistory,
+    loadVaultHistory,
+  };
 }
 
 describe("GitPanel change navigation", () => {
@@ -53,12 +104,47 @@ describe("GitPanel change navigation", () => {
   });
 
   it("marks the file whose diff is open", async () => {
-    await renderPanel("notes/alpha.md");
+    await renderPanel({ diffPath: "notes/alpha.md" });
 
     const row = page.getByRole("button", { name: "Diff notes/alpha.md" });
     await expect.element(row).toHaveAttribute("aria-current", "true");
     await expect
       .element(page.getByRole("button", { name: "Diff beta.md" }))
       .not.toHaveAttribute("aria-current");
+  });
+});
+
+describe("GitPanel history", () => {
+  it("loads the note's history on demand and opens revisions", async () => {
+    const { onShowRevision, loadNoteHistory } = await renderPanel();
+
+    await page.getByRole("button", { name: "Show history" }).click();
+    await expect.element(page.getByText("auto: pending changes").first()).toBeVisible();
+    expect(loadNoteHistory).toHaveBeenCalledWith("notes/alpha.md");
+
+    await page
+      .getByTitle(/View revision/)
+      .first()
+      .click();
+    expect(onShowRevision).toHaveBeenCalledWith(noteHistory[0]);
+  });
+
+  it("disables note scope without an open note", async () => {
+    await renderPanel({ activePath: null });
+
+    await expect.element(page.getByRole("button", { name: "Show history" })).toBeDisabled();
+  });
+
+  it("lists vault commits and restores a snapshot after confirmation", async () => {
+    const { onRestoreSnapshot } = await renderPanel();
+
+    await page.getByRole("button", { name: "Show history" }).click();
+    await page.getByRole("button", { name: "Vault" }).click();
+
+    const restore = page.getByRole("button", { name: /Restore snapshot/ });
+    await restore.click();
+    expect(onRestoreSnapshot).not.toHaveBeenCalled();
+    await restore.click();
+    expect(onRestoreSnapshot).toHaveBeenCalledWith(vaultHistory[0].oid);
   });
 });

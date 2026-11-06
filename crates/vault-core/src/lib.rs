@@ -2,6 +2,7 @@ pub mod db;
 pub mod exclude;
 pub mod git_backend;
 pub mod gix_backend;
+pub mod history;
 pub mod merge;
 pub mod sync;
 pub mod vault;
