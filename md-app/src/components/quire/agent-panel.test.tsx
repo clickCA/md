@@ -32,9 +32,21 @@ const doneTurn: AgentTurn = {
   provider: "opencode",
   prompt: "Summarize my daily notes",
   output: "Here is a summary:\n- a\n- b\n",
+  toolCalls: [],
   status: "done",
   summary: "finished in 12.4s",
   changedFiles: ["notes/alpha.md", "deleted.md"],
+};
+
+const turnWithActivity: AgentTurn = {
+  ...doneTurn,
+  prompt: "Append a line to alpha",
+  output: "Done — appended.\n",
+  toolCalls: [
+    { name: "edit", detail: "notes/alpha.md" },
+    { name: "bash", detail: "git status" },
+    { name: "todowrite", detail: "" },
+  ],
 };
 
 async function renderPanel(overrides: Record<string, unknown> = {}) {
@@ -85,6 +97,22 @@ describe("AgentPanel", () => {
 
     await chip.click();
     expect(onOpenFile).toHaveBeenCalledWith("notes/alpha.md");
+  });
+
+  it("lists the tool calls a turn made under Activity", async () => {
+    await renderPanel({ turns: [turnWithActivity] });
+
+    await expect.element(page.getByText("Activity")).toBeVisible();
+    await expect.element(page.getByText("edit · notes/alpha.md")).toBeVisible();
+    await expect.element(page.getByText("bash · git status")).toBeVisible();
+    // A call without detail shows just the tool name.
+    await expect.element(page.getByText("todowrite")).toBeVisible();
+  });
+
+  it("hides the Activity section when a turn made no tool calls", async () => {
+    await renderPanel();
+
+    expect(page.getByText("Activity").elements()).toHaveLength(0);
   });
 
   it("sends on Enter and keeps the send button disabled while input is empty", async () => {

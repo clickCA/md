@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chipName, openableChangedFiles } from "./agent";
+import { chipName, openableChangedFiles, toolLabel } from "./agent";
 
 describe("openableChangedFiles", () => {
   it("intersects changed paths with the current vault file set", () => {
@@ -20,5 +20,12 @@ describe("chipName", () => {
   it("strips folder and .md extension", () => {
     expect(chipName("Journal/2026-11-06.md")).toBe("2026-11-06");
     expect(chipName("plain.md")).toBe("plain");
+  });
+});
+
+describe("toolLabel", () => {
+  it("joins name and detail, or falls back to the bare name", () => {
+    expect(toolLabel({ name: "edit", detail: "notes/alpha.md" })).toBe("edit · notes/alpha.md");
+    expect(toolLabel({ name: "todowrite", detail: "" })).toBe("todowrite");
   });
 });

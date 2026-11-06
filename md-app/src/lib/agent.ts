@@ -14,7 +14,20 @@ export interface AgentProviderInfo {
 }
 
 /** One chunk streamed from the running CLI over the Tauri channel. */
-export type AgentEvent = { kind: "output"; stream: "stdout" | "stderr"; text: string };
+export type AgentEvent =
+  | { kind: "output"; stream: "stdout" | "stderr"; text: string }
+  | { kind: "tool"; name: string; detail: string };
+
+/** A tool call the agent made, normalized across providers by the backend. */
+export interface AgentToolCall {
+  name: string;
+  detail: string;
+}
+
+/** `name · detail` for the activity log, or just the name when no detail. */
+export function toolLabel(call: AgentToolCall): string {
+  return call.detail ? `${call.name} · ${call.detail}` : call.name;
+}
 
 export interface AgentRunOptions {
   autoApprove: boolean;
@@ -35,8 +48,10 @@ export interface AgentTurn {
   id: number;
   provider: AgentProviderId;
   prompt: string;
-  /** Raw streamed output, exactly as the CLI produced it. */
+  /** Assistant text output, exactly as the CLI produced it. */
   output: string;
+  /** Tool calls observed while the turn ran (file edits, commands, …). */
+  toolCalls: AgentToolCall[];
   status: "running" | "done" | "cancelled" | "error";
   error?: string;
   summary?: string | null;

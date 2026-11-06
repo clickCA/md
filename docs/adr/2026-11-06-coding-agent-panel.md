@@ -49,11 +49,20 @@ flags? What happens to the files it changes? Where does the panel live?
 
 5. **Session continuity is best-effort per provider.** Claude Code returns an
    explicit `session_id` (from its `result` event) that we resume with
-   `--resume`; opencode/codex continue their most recent session in the directory
-   (`--continue`). "New session" forgets both. Fine for a panel where the agent's
-   own memory is secondary to file state.
+   `--resume`; opencode stamps every `--format json` event with a `sessionID`,
+   which we harvest the same way and resume precisely with `--session`; codex
+   continues its most recent session in the directory (`--continue`). "New
+   session" forgets all of them. Fine for a panel where the agent's own memory
+   is secondary to file state.
 
-6. **No new bundling or runtime deps.** PATH discovery is a pure probe
+6. **The stream is normalized to text *and* tool-call activity.** `claude -p
+   --output-format stream-json` and `opencode run --format json` both emit
+   JSONL; Rust parsers (`parse_claude_line`, `parse_opencode_line`) turn them
+   into two event kinds — `output` (assistant text) and `tool` (name + short
+   detail: file path, command, pattern). The panel renders the latter as a
+   compact activity log. codex is left streaming raw lines (see limits).
+
+7. **No new bundling or runtime deps.** PATH discovery is a pure probe
    (`split_path`/`find_in_path`, unit-tested), so installing an agent later is
    enough — the panel refreshes its detection on open. No sidecars, no shell
    plugin, no `Cargo.toml` changes beyond none.
@@ -66,12 +75,18 @@ flags? What happens to the files it changes? Where does the panel live?
   provider (no shell interpolation), so there is no command-injection surface.
 - The 60-second tour and §7 exclusions in `docs/RUN-PRODUCT.md` are updated: AI is
   now a client integration, not a subscription feature.
-- Claude's `stream-json` output is normalized to text in Rust (`claude_stream_line`,
-  tested); other providers stream raw lines.
-- Learned flag facts are pinned by tests: `opencode run [-c|--session <id>]
-  [--auto] <msg>`, `claude -p [--resume <id>] [--permission-mode …]
-  --output-format stream-json`, `codex exec [--continue] [--full-auto] <msg>`.
-  `codex` was not installable to verify interactively during this change — its
-  flags are best-effort and marked so in the provider table.
+- Claude's `stream-json` and opencode's `--format json` output are normalized in
+  Rust (`parse_claude_line`, `parse_opencode_line`, tested) into text + tool-call
+  events; codex streams raw lines.
+- Learned flag facts are pinned by tests: `opencode run --format json
+  [-c|--session <id>] [--auto] <msg>`, `claude -p [--resume <id>]
+  [--permission-mode …] --output-format stream-json --verbose
+  --include-partial-messages` (`--verbose` is *required* by `-p` +
+  `stream-json` — without it the CLI exits with an error), `codex exec
+  [--continue] [--full-auto] <msg>`. `codex` was not installable to verify
+  interactively during this change — its flags are best-effort and marked so
+  in the provider table.
 - Known limits: multi-turn runs spawn a fresh process per turn (no persistent
-  terminal); the panel does not render tool-call structured output, only text.
+  terminal); codex (uninstalled at decision time) shows raw text only, no
+  structured tool calls; opencode text events arrive per completed segment, not
+  per token.
