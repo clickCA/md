@@ -3,7 +3,9 @@ import { Dialog } from "@base-ui/react/dialog";
 import { FilePlus, FolderOpen } from "lucide-react";
 import type { Vault } from "@/hooks/useVault";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
+import { useAgent } from "@/hooks/useAgent";
 import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
+import { AgentPanel } from "./agent-panel";
 import { CommandPalette, type PaletteCommand } from "./command-palette";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
@@ -79,7 +81,32 @@ export function Workspace({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
+
+  // AI agent panel: runs a coding-agent CLI against the vault directory and
+  // streams its output. Agent edits land in the working tree — refresh the
+  // vault so the file tree / source control pick them up right away.
+  const agent = useAgent(vault.dir, (changed) => {
+    if (changed.length > 0) void vault.refresh();
+  });
+  const agentState = {
+    providers: agent.providers,
+    selected: agent.selected,
+    onSelect: agent.setSelected,
+    running: agent.running,
+    turns: agent.turns,
+    error: agent.error,
+    input: agent.input,
+    onInput: agent.setInput,
+    onSend: () => void agent.run(agent.input),
+    onStop: () => void agent.stop(),
+    onNewSession: agent.newSession,
+    autoApprove: agent.autoApprove,
+    onAutoApproveChange: agent.setAutoApprove,
+    files: files,
+    onOpenFile: (path: string) => openNote(path),
+  };
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,6 +283,9 @@ export function Workspace({
       } else if (e.shiftKey && key === "f") {
         e.preventDefault();
         showPanel("search");
+      } else if (e.shiftKey && key === "a") {
+        e.preventDefault();
+        setAgentOpen((o) => !o);
       } else if (e.shiftKey && key === "g") {
         e.preventDefault();
         showPanel("git");
@@ -301,6 +331,12 @@ export function Workspace({
       label: "Search in all notes",
       hint: "Ctrl Shift F",
       run: () => showPanel("search"),
+    },
+    {
+      id: "agent",
+      label: "Toggle AI agent panel",
+      hint: "Ctrl Shift A",
+      run: () => setAgentOpen((o) => !o),
     },
     { id: "sync", label: "Sync now", run: () => void syncNow() },
     { id: "pull", label: "Git: Pull (take remote)", run: () => void gitAction("take-remote") },
@@ -424,48 +460,56 @@ export function Workspace({
           onOpenPalette={() => setPaletteOpen(true)}
           onOpenTypography={onOpenTypography}
           onNewNote={newNote}
+          agentOpen={agentOpen}
+          onToggleAgent={() => setAgentOpen((o) => !o)}
         />
 
-        {diffFile ? (
-          <DiffViewer
-            key={diffFile.path}
-            file={diffFile}
-            onOpenNote={openFromDiff}
-            onClose={() => setDiffPath(null)}
-          />
-        ) : activeFile && editorProps ? (
-          <div className="flex min-h-0 flex-1">
-            <section aria-label="Editor" className="relative min-w-0 flex-1">
-              {mode === "edit" ? (
-                <MarkdownEditor key={activeFile.path} {...editorProps} dark={dark} />
-              ) : (
-                <MarkdownPreview
-                  key={activeFile.path}
-                  file={activeFile}
-                  dir={vault.dir}
-                  onOpenLink={openByTitle}
-                  onToggleTask={toggleTaskLine}
-                />
-              )}
-              <div
-                className="pointer-events-none absolute right-6 bottom-3 z-10 rounded-md border border-border bg-panel/90 px-2.5 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
-                aria-label="Note statistics"
-              >
-                {wordCount(activeFile.content)} words · {activeFile.content.length} chars
-              </div>
-            </section>
-            {outlineOpen && (
-              <Inspector
-                file={activeFile}
-                files={files}
-                onOpen={openNote}
-                onJump={(line) => editorRef.current?.jumpTo(line)}
+        <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {diffFile ? (
+              <DiffViewer
+                key={diffFile.path}
+                file={diffFile}
+                onOpenNote={openFromDiff}
+                onClose={() => setDiffPath(null)}
               />
+            ) : activeFile && editorProps ? (
+              <div className="flex min-h-0 flex-1">
+                <section aria-label="Editor" className="relative min-w-0 flex-1">
+                  {mode === "edit" ? (
+                    <MarkdownEditor key={activeFile.path} {...editorProps} dark={dark} />
+                  ) : (
+                    <MarkdownPreview
+                      key={activeFile.path}
+                      file={activeFile}
+                      dir={vault.dir}
+                      onOpenLink={openByTitle}
+                      onToggleTask={toggleTaskLine}
+                    />
+                  )}
+                  <div
+                    className="pointer-events-none absolute right-6 bottom-3 z-10 rounded-md border border-border bg-panel/90 px-2.5 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
+                    aria-label="Note statistics"
+                  >
+                    {wordCount(activeFile.content)} words · {activeFile.content.length} chars
+                  </div>
+                </section>
+                {outlineOpen && (
+                  <Inspector
+                    file={activeFile}
+                    files={files}
+                    onOpen={openNote}
+                    onJump={(line) => editorRef.current?.jumpTo(line)}
+                  />
+                )}
+              </div>
+            ) : (
+              <EmptyState onCreate={newNote} onOpenFolder={onOpenFolder} />
             )}
           </div>
-        ) : (
-          <EmptyState onCreate={newNote} onOpenFolder={onOpenFolder} />
-        )}
+
+          {agentOpen && <AgentPanel {...agentState} />}
+        </div>
       </main>
 
       {paletteOpen && (

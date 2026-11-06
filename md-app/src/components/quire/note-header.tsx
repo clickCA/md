@@ -5,6 +5,7 @@ import {
   PanelLeftOpen,
   PenLine,
   Search,
+  Sparkles,
   SquarePen,
   Type,
 } from "lucide-react";
@@ -25,6 +26,8 @@ type Props = {
   onOpenPalette: () => void;
   onOpenTypography: () => void;
   onNewNote: () => void;
+  agentOpen: boolean;
+  onToggleAgent: () => void;
 };
 
 export function NoteHeader({
@@ -40,6 +43,8 @@ export function NoteHeader({
   onOpenPalette,
   onOpenTypography,
   onNewNote,
+  agentOpen,
+  onToggleAgent,
 }: Props) {
   const parts = path ? path.replace(/\.md$/, "").split("/") : [];
   const title = parts.pop();
@@ -63,6 +68,13 @@ export function NoteHeader({
       <div className="flex items-center">
         <IconButton label="New note (Ctrl N)" onClick={onNewNote}>
           <SquarePen className="size-4" aria-hidden />
+        </IconButton>
+        <IconButton
+          label={agentOpen ? "Hide AI agent (Ctrl Shift A)" : "AI agent (Ctrl Shift A)"}
+          pressed={agentOpen}
+          onClick={onToggleAgent}
+        >
+          <Sparkles className="size-4" aria-hidden />
         </IconButton>
         <IconButton label="Search notes (Ctrl K)" onClick={onOpenPalette}>
           <Search className="size-4" aria-hidden />
