@@ -6,6 +6,7 @@
 //! - [`git`]   — git state + explicit user-triggered git actions
 //! - [`fsx`]   — binary/file access (images, absolute paths)
 //! - [`agent`] — coding-agent CLI integration (opencode/codex/Claude Code)
+//! - [`ai`]   — inline AI: single-shot tool-disabled text via the same CLIs
 //! - [`dto`]   — shared wire types (camelCase) + vault status assembly
 //!
 //! The full contract is documented in `docs/api.md`. Command names,
@@ -13,6 +14,7 @@
 //! in lockstep with `md-app/src/**` or not at all.
 
 pub mod agent;
+pub mod ai;
 pub mod dto;
 pub mod fsx;
 pub mod git;
