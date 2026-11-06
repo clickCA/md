@@ -40,3 +40,26 @@
   (`v0.1.0-alpha.N`), GitHub Pre-release flag, release title, landing copy.
 - Version strings change only for real releases (`0.1.0` → `0.2.0`), never
   per alpha/beta iteration.
+
+## Auto-update (tauri-plugin-updater)
+
+- **Covers**: Windows (NSIS/MSI) and macOS update in-app; Linux deb/rpm keep
+  going through the pacman repo (`make pacman-publish`); the Linux AppImage
+  also gets a signed updater artifact for free.
+- **The workflow does the work**: `bundle.createUpdaterArtifacts: true` +
+  `includeUpdaterJson: true` make the Release build upload `latest.json` and
+  the `.sig` files to the tag's release. No manual manifest handling.
+- **Signing keys**: the private key is the GitHub Actions secret
+  `TAURI_SIGNING_PRIVATE_KEY`; its local backup lives at `~/.tauri/md-app.key`.
+  The matching public key is committed in `tauri.conf.json`
+  (`plugins.updater.pubkey`). **Losing the private key means you can never
+  ship an update again** — treat the backup like a root cert.
+  - Locked future releases to a *new* key: generate a fresh keypair, replace
+    the pubkey in `tauri.conf.json`, update the secret, and cut one
+    "re-key" update signed by the old key that instructs users to reinstall.
+- **Endpoint**: the app checks
+  `https://github.com/clickCA/md/releases/latest/download/latest.json`.
+  GitHub's `/releases/latest` excludes pre-releases, so alpha installs first
+  auto-update when a **stable** `0.1.0` lands; alpha→alpha stays manual
+  (reinstall from the tag). See `docs/adr/2026-11-06-auto-update.md`.
+- **Re-keying / channel caveats, macOS signing** — see the ADR.
