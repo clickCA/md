@@ -1,7 +1,7 @@
 {
   "name": "md-landing",
   "private": true,
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "astro dev",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "7.4.4",
+    "astro": "7.4.7",
     "md-app": "workspace:*",
     "tailwindcss": "^4.3.3"
   }
