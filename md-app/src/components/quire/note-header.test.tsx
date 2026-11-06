@@ -20,6 +20,8 @@ const renderHeader = async (diffOpen = false, onToggleDiff = noop) => {
       onOpenPalette={noop}
       onOpenTypography={noop}
       onNewNote={noop}
+      agentOpen={false}
+      onToggleAgent={noop}
     />,
   );
 };
@@ -56,6 +58,8 @@ describe("NoteHeader diff toggle", () => {
         onOpenPalette={noop}
         onOpenTypography={onOpenTypography}
         onNewNote={noop}
+        agentOpen={false}
+        onToggleAgent={noop}
       />,
     );
     await page.getByRole("button", { name: "Typography settings" }).click();
