@@ -24,8 +24,10 @@
 6. **Point the distribution surfaces at the new tag**:
    - landing button: `landing/src/components/Footer.astro` → rebuild → deploy
      (`pnpm build:landing` + `wrangler pages deploy landing/dist`)
-   - pacman repo: `packaging/arch/PKGBUILD` `_tag` → rebuild (`makepkg`),
-     `repo-add`, redeploy `md-repo`
+   - pacman repo: **`make pacman-publish`** — downloads the fresh `.deb` from
+     the release, rebuilds the package, `repo-add`, and deploys `md-repo`
+     (needs `gh`, `makepkg`, `repo-add`, and a `wrangler login`); it commits the
+     `packaging/arch/PKGBUILD` bump to `main` when run there
 
 ## Version convention
 
