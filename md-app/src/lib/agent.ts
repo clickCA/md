@@ -36,7 +36,7 @@ export interface AgentRunOptions {
 }
 
 export interface AgentRunResult {
-  status: "done" | "cancelled";
+  status: "done" | "cancelled" | "error";
   changedFiles: string[];
   sessionId: string | null;
   summary: string | null;

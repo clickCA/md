@@ -86,6 +86,19 @@ describe("AgentPanel", () => {
     await expect.element(page.getByText("Done")).toBeVisible();
   });
 
+  it("marks a turn whose CLI failed as Failed", async () => {
+    const failedTurn: AgentTurn = {
+      ...doneTurn,
+      status: "error",
+      summary: null,
+      output: "opencode: model overloaded\n",
+    };
+    await renderPanel({ turns: [failedTurn] });
+
+    await expect.element(page.getByText("Failed")).toBeVisible();
+    await expect.element(page.getByText(/model overloaded/)).toBeVisible();
+  });
+
   it("lists only changed files that are real notes, and opens them on click", async () => {
     const { onOpenFile } = await renderPanel();
 

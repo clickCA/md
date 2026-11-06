@@ -144,7 +144,10 @@ agent edits is captured by the downstream git review/sync flow.
 - Concurrency: **at most one run at a time**. A second `agent_run` while one is
   in flight rejects with `internal` ("an agent run is already in progress").
 - Cancel: `agent_stop` kills the child; the run then resolves with
-  `status: "cancelled"`. A run that finishes normally reports `status: "done"`.
+  `status: "cancelled"`. A run that finishes normally reports `status: "done"`;
+  a run whose CLI exits non-zero (or dies on a signal, including our own
+  force-kill) without a cancel resolves `status: "error"` — the CLI's stderr
+  is already in the stream for the panel to show.
 - `changedFiles` is the `git status --porcelain` listing (vault-relative) captured
   after the run — anything the agent wrote, ready for the review/sync flow.
 - Safety net: `agent_run` waits for both output pipes to close with a 60 s cap
@@ -175,7 +178,7 @@ The AI agent panel runs a coding-agent CLI against the vault folder. This is the
   `{ kind: "tool", name, detail }` — a completed tool call (edit path, bash command, grep
   pattern…). Claude (`stream-json`) and opencode (`--format json`) emit structured JSONL that
   Rust normalizes into both kinds; codex streams raw `output` lines only.
-- `AgentRun = { status: "done" | "cancelled", changedFiles: string[], sessionId?, summary?, durationMs }`.
+- `AgentRun = { status: "done" | "cancelled" | "error", changedFiles: string[], sessionId?, summary?, durationMs }`.
   `sessionId` comes from Claude's terminal `result` event, or from opencode's `sessionID`
   (stamped on every streamed event) — it feeds the next turn's `--resume` / `--session`.
 - The agent runs **non-interactively in `dir`** (the vault root), so everything it edits lands in
