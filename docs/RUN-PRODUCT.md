@@ -73,6 +73,7 @@ pnpm --filter md-app tauri build    # installer/bundle under md-app/src-tauri/ta
 | Paste an image into a note                              | Saved into the vault, rendered inline; click it → zoom/pan/rotate viewer |
 | `Ctrl K` (or sidebar → search)                          | Full-text search (FTS5), relevance-ranked, click a hit to jump to the line |
 | Sidebar → source control                                | Local-ahead/remote-ahead status, recent sync journal, push/pull/sync buttons |
+| Create a `.quireignore` with `private/` in the vault    | Those notes vanish from the file tree and search — but stay on disk, tracked, and synced like any other note |
 | Set a remote + edit for ~5 s                            | Auto-sync fires by itself; failures show quietly inside the panel   |
 | Edit the same note on another clone, sync both          | Non-overlapping edits merge; overlapping edits keep both (`.conflict-<ts>.md`) |
 | Right-click in the editor, preview or any input         | Cut · Copy · Paste · Select All — the same menu on macOS, Windows and Linux; `Cmd`/`Ctrl+C` `X` `V` work in the editor everywhere |

@@ -1,4 +1,5 @@
 pub mod db;
+pub mod exclude;
 pub mod git_backend;
 pub mod gix_backend;
 pub mod merge;

@@ -73,7 +73,7 @@ pub async fn vault_probe(dir: String) -> ProbeDto {
         let mut note_count = None;
         if is_vault && let Ok(v) = Vault::open(&p) {
             remote_url = v.git.remote_url().ok().flatten();
-            note_count = v.fs_files().map(|f| f.len() as u64).ok();
+            note_count = v.visible_files().map(|f| f.len() as u64).ok();
         }
         Ok(ProbeDto {
             exists: p.exists(),
@@ -154,7 +154,7 @@ fn remote_url_and_count(v: &Vault) -> Result<VaultInfoDto, AppError> {
             .unwrap_or_default(),
         dir: v.root.to_string_lossy().to_string(),
         remote_url: v.git.remote_url()?,
-        note_count: v.fs_files().map(|f| f.len() as u64).ok(),
+        note_count: v.visible_files().map(|f| f.len() as u64).ok(),
     })
 }
 

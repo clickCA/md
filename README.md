@@ -70,6 +70,11 @@ Files + SQLite index per vault · standard Git remote · single main branch
   query and rebuilt on drift (external edits are always visible); non-ASCII
   queries (Thai, CJK, …) fall back to a line scan — see
   [docs/adr/2026-10-30-search-index.md](docs/adr/2026-10-30-search-index.md)
+- **Path exclusions**: a `.quireignore` file at the vault root hides notes
+  from the app (file tree, note listing, search, AI) without touching git —
+  excluded notes stay on disk, tracked, and synced. Same habits as
+  `.gitignore`: folders, globs, `!` re-include; the file itself syncs, so
+  rules follow the vault across devices
 
 ## Status
 
