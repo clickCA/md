@@ -33,6 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::agent::AgentState::default())
+        .manage(commands::ai::AiState::default())
         .setup(|app| {
             // macOS routes Cmd+C/X/V/A into the webview through the responder
             // chain, which only fires when a native Edit menu carries those
@@ -86,6 +87,8 @@ pub fn run() {
             commands::agent::agent_detect,
             commands::agent::agent_run,
             commands::agent::agent_stop,
+            commands::ai::ai_inline,
+            commands::ai::ai_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

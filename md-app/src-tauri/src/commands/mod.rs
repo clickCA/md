@@ -13,6 +13,7 @@
 //! in lockstep with `md-app/src/**` or not at all.
 
 pub mod agent;
+pub mod ai;
 pub mod dto;
 pub mod fsx;
 pub mod git;

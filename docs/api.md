@@ -185,6 +185,34 @@ The AI agent panel runs a coding-agent CLI against the vault folder. This is the
 - At most one run at a time; `agent_stop` kills the current child and the run resolves with
   `status: "cancelled"`.
 
+## Inline AI commands
+
+The inline surface from `docs/adr/2026-11-06-inline-ai-surface.md`: one
+model reply for one editor selection. The CLI runs with per-provider
+no-write enforcement (claude `--max-turns 1 --disallowedTools <mutating
+core>`, opencode `--agent plan`, codex `--sandbox read-only`) and the app
+never applies the result itself — the UI diffs it against the selection
+and writes it through `note_write` only on an explicit Accept. The prompt
+is built in the UI (`src/lib/inline-ai.ts`) and passed in whole.
+
+| Command     | Arguments                          | Returns                                             |
+| ----------- | ---------------------------------- | --------------------------------------------------- |
+| `ai_inline` | `dir`, `provider`, `prompt`, `onEvent` (streaming `Channel`) | `AiInlineRun` — after streaming `AiEvent`s |
+| `ai_stop`   | —                                  | `void` — cancels the in-flight run (kills the child) |
+
+- `AiEvent` (streamed): `{ kind: "text", text }` — model text as it arrives.
+- `AiInlineRun = { text, status: "done" | "cancelled" | "error", sessionId?, error?, durationMs }`.
+  `text` is the complete candidate reply (empty unless done); `error`
+  carries the CLI's stderr tail on failure.
+- Validation mirrors the agent panel: unknown provider / empty prompt /
+  non-directory → `invalid-input`; CLI not on PATH → `invalid-input` with
+  the install hint; at most one inline run at a time → `internal`.
+- Inline runs are sessionless one-shots by default; `sessionId` is reported
+  when the CLI emits one, so the UI *may* build follow-ups later, but no
+  resume logic lives in the command layer.
+- Safety net: same pipe-cap + force-kill behavior as `agent_run` (120 s per
+  pipe); a wedged CLI is killed and the run resolves `"error"`.
+
 ## Boundary rules
 
 1. All cross-boundary DTOs are camelCase and defined once per side
