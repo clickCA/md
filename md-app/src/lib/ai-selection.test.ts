@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionById,
+  AI_ACTIONS,
   captureSelection,
   isStale,
+  makeRequest,
   planApply,
   suggestionDiff,
   REWRITE_INSTRUCTION,
@@ -69,5 +72,37 @@ describe("suggestionDiff", () => {
 
   it("produces no hunks when the suggestion equals the original", () => {
     expect(suggestionDiff("same\n", "same\n")).toEqual([]);
+  });
+});
+
+describe("AI action presets", () => {
+  it("offers the four built-in presets", () => {
+    expect(AI_ACTIONS.map((a) => a.id)).toEqual(["rewrite", "improve", "summarize", "continue"]);
+  });
+
+  it("actionById resolves presets and throws on unknown ids", () => {
+    expect(actionById("improve").label).toBe("Improve writing");
+    expect(() => actionById("nope" as never)).toThrow();
+  });
+
+  it("select presets require a non-empty selection", () => {
+    expect(makeRequest(DOC, 5, 5, actionById("summarize"))).toBeNull();
+  });
+
+  it("continue presets capture an empty insertion range with tail context", () => {
+    const req = makeRequest(DOC, 0, 17, actionById("continue"))!;
+    // The insertion point backs up over the selection's trailing newline:
+    // "keep writing" lands right after the period.
+    expect(req.from).toBe(16);
+    expect(req.to).toBe(16);
+    expect(req.original).toBe("");
+    expect(req.context).toBe("Alpha paragraph.");
+    expect(req.label).toBe("Continue writing");
+  });
+
+  it("clamps out-of-range positions", () => {
+    const req = makeRequest(DOC, -5, DOC.length + 100, actionById("rewrite"))!;
+    expect(req.from).toBe(0);
+    expect(req.to).toBe(DOC.length);
   });
 });
