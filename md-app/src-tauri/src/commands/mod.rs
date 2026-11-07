@@ -22,6 +22,9 @@ pub mod notes;
 pub mod vault;
 
 use std::path::PathBuf;
+use std::process::{Child, Command};
+use std::thread;
+use std::time::{Duration, Instant};
 use vault_core::vault::Vault;
 
 use crate::error::AppError;
@@ -29,6 +32,43 @@ use crate::error::AppError;
 /// Open a vault, mapping engine failures onto structured [`AppError`]s.
 pub(crate) fn open_vault(dir: &str) -> Result<Vault, AppError> {
     Vault::open(&PathBuf::from(dir)).map_err(Into::into)
+}
+
+/// Spawn a child process, retrying briefly on `ETXTBSY` ("Text file busy").
+///
+/// On overlayfs (CI containers, some setups' `/tmp`), exec'ing a file that
+/// was *just* written can race the underlying copy-up and report ETXTBSY
+/// even though the write handle is long closed — observed intermittently in
+/// CI for the fake-CLI process tests. A short retry is the standard cure;
+/// every other error surfaces unchanged. Giving up after ~2 s keeps a
+/// genuinely busy binary from stalling the command.
+pub(crate) fn spawn_with_busy_retry(cmd: &mut Command) -> std::io::Result<Child> {
+    const DEADLINE: Duration = Duration::from_secs(2);
+    const TICK: Duration = Duration::from_millis(20);
+    let started = Instant::now();
+    loop {
+        match cmd.spawn() {
+            Ok(child) => return Ok(child),
+            Err(e) if is_text_file_busy(&e) && started.elapsed() < DEADLINE => {
+                thread::sleep(TICK);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// `ETXTBSY` is Linux/Unix-only; `std::io::ErrorKind::TextFileBusy` is not
+/// stable yet, so compare the raw errno.
+fn is_text_file_busy(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        e.raw_os_error() == Some(26)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = e;
+        false
+    }
 }
 
 /// Run blocking engine work (git network I/O, FTS rebuilds, worktree scans)
