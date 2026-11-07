@@ -86,6 +86,12 @@ async function renderPanel(
       onSync={noop}
       onGitAction={noop}
       onInit={noop}
+      loadRemotes={vi.fn().mockResolvedValue({ primary: "origin", remotes: [] })}
+      onRemoteAdd={vi.fn().mockResolvedValue(undefined)}
+      onRemoteRemove={noop}
+      onRemoteRename={vi.fn().mockResolvedValue(undefined)}
+      onRemoteSetPrimary={noop}
+      onSyncFrom={noop}
     />,
   );
   return {
