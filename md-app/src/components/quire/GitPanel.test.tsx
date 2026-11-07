@@ -3,7 +3,7 @@ import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import type { CommitInfo, HistoryEntry } from "@/types";
 import type { VaultFile } from "@/lib/vault";
-import { GitPanel } from "./git-panel";
+import { GitPanel } from "./GitPanel";
 
 const noop = () => {};
 

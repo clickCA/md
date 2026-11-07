@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
 import type { VaultFile } from "@/lib/vault";
-import { MarkdownEditor } from "./note-editor";
+import { MarkdownEditor } from "./NoteEditor";
 import "../../index.css";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));

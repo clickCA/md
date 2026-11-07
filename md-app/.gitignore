@@ -16,7 +16,7 @@ dist-ssr
 .vitest/
 
 # Real-note fixture generated from the user's vault (personal content)
-src/components/quire/vault-corpus.generated.ts
+src/components/quire/vaultCorpus.generated.ts
 
 # Editor directories and files
 .vscode/*

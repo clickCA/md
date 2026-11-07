@@ -2,7 +2,7 @@ import { RefreshCw } from "lucide-react";
 import type { BrokenLink } from "@/types";
 import { fileName } from "@/lib/vault";
 import { cn } from "@/lib/utils";
-import { PanelHeader } from "./panel-header";
+import { PanelHeader } from "./PanelHeader";
 
 type Props = {
   /** null = not scanned yet; [] = scanned, everything resolves. */

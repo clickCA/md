@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import type { SearchHit } from "@/hooks/useVault";
 import { fileName } from "@/lib/vault";
-import { PanelHeader } from "./panel-header";
+import { PanelHeader } from "./PanelHeader";
 
 type Props = {
   onOpen: (path: string) => void;

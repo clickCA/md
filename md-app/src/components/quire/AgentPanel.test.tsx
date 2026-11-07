@@ -3,7 +3,7 @@ import { useState } from "react";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import type { AgentProviderInfo, AgentTurn } from "@/lib/agent";
-import { AgentPanel, type AgentPanelProps } from "./agent-panel";
+import { AgentPanel, type AgentPanelProps } from "./AgentPanel";
 
 const noop = () => {};
 

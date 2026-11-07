@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import "@/index.css";
-import { ImageViewer } from "./image-viewer";
+import { ImageViewer } from "./ImageViewer";
 
 /* 1×1 red PNG — data URLs pass through resolveImage without touching Tauri */
 const RED_DOT =

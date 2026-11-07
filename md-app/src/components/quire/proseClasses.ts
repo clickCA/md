@@ -1,6 +1,6 @@
 /* Look shared by the Obsidian-style inline note title in BOTH surfaces:
-   the read-mode preview (note-preview.tsx) and the editor's CodeMirror
-   widget (note-editor.tsx, InlineTitleWidget).
+   the read-mode preview (NotePreview.tsx) and the editor's CodeMirror
+   widget (NoteEditor.tsx, InlineTitleWidget).
    Spacing is PADDING, not margin — CodeMirror measures the widget by
    offsetHeight, which excludes margins; a margin here desyncs the click
    hitboxes of every line below the title by the margin size. */

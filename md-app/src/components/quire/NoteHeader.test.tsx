@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
-import { NoteHeader } from "./note-header";
+import { NoteHeader } from "./NoteHeader";
 
 const noop = () => {};
 

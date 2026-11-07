@@ -23,7 +23,7 @@ flags? What happens to the files it changes? Where does the panel live?
    working directory, and streams stdout/stderr over a Tauri `Channel` to the UI.
    One run at a time; a stop button kills the child and the run resolves
    `status: "cancelled"`. Commands live in `commands/agent.rs`; the React panel
-   (`components/quire/agent-panel.tsx`) is a right-side pane like the Inspector,
+   (`components/quire/AgentPanel.tsx`) is a right-side pane like the Inspector,
    toggled from the header or `Ctrl Shift A`.
 
 2. **Auth stays entirely with the CLI.** opencode/codex/Claude Code read their own

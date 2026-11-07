@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
-import { Sidebar } from "./sidebar";
+import { Sidebar } from "./Sidebar";
 
 const noop = () => {};
 

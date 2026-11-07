@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import type { HistoryEntry } from "@/types";
-import { RevisionViewer } from "./revision-viewer";
+import { RevisionViewer } from "./RevisionViewer";
 
 const entry: HistoryEntry = {
   oid: "1234567890abcdef",

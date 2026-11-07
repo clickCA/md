@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { mdLivePreview } from "./live-preview";
+import { mdLivePreview } from "./livePreview";
 
 /* The real fixture is gitignored (personal content) and generated locally with
    `node scripts/make-vault-corpus.mjs`. Glob instead of a static import so
    checkouts without the fixture (CI) still typecheck — the test skips below. */
 const generated = import.meta.glob<{
   corpus: readonly { name: string; content: string }[];
-}>("./vault-corpus.generated.ts", { eager: true });
+}>("./vaultCorpus.generated.ts", { eager: true });
 const corpus = Object.values(generated)[0]?.corpus ?? [];
 
 /* Sweep the live preview over every file of a real Obsidian vault

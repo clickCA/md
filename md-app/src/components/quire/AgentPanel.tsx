@@ -4,8 +4,8 @@ import type { AgentProviderId, AgentTurn } from "@/lib/agent";
 import { chipName, openableChangedFiles, toolLabel } from "@/lib/agent";
 import type { AgentProviderInfo } from "@/lib/agent";
 import { cn } from "@/lib/utils";
-import { IconButton } from "./sidebar";
-import { PanelHeader } from "./panel-header";
+import { IconButton } from "./Sidebar";
+import { PanelHeader } from "./PanelHeader";
 
 type Props = {
   providers: AgentProviderInfo[];
