@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TouchEvent as ReactTouchEvent } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { FilePlus, FolderOpen } from "lucide-react";
 import type { Vault } from "@/hooks/useVault";
 import type { HistoryEntry } from "@/types";
+import { useBackClose } from "@/hooks/useBackClose";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
 import { useAiNote } from "@/hooks/useAiNote";
@@ -107,6 +109,14 @@ export function Workspace({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
+
+  // System back gesture (Android) closes the topmost overlay instead of
+  // leaving the app — each open overlay holds one webview-history entry.
+  useBackClose(drawerOpen, () => setDrawerOpen(false));
+  useBackClose(paletteOpen, () => setPaletteOpen(false));
+  useBackClose(diffPath !== null, () => setDiffPath(null));
+  useBackClose(revision !== null, () => setRevision(null));
+  useBackClose(deleteTarget !== null, () => setDeleteTarget(null));
 
   // AI agent panel: runs a coding-agent CLI against the vault directory and
   // streams its output. Agent edits land in the working tree — refresh the
@@ -225,6 +235,19 @@ export function Workspace({
     setSummaryFolder(folder);
     void folderSummary.summarize(folder);
   };
+  // Back while an AI modal is mid-run must not orphan the request: mirror the
+  // modals' own close guards.
+  useBackClose(aiNoteOpen, () => {
+    if (aiNote.phase.kind !== "running") setAiNoteOpen(false);
+  });
+  useBackClose(aiAskOpen, () => {
+    if (aiAsk.phase.kind !== "running") setAiAskOpen(false);
+  });
+  useBackClose(summaryFolder !== null, () => {
+    if (folderSummary.phase.kind === "running") void folderSummary.stop();
+    folderSummary.dismiss();
+    setSummaryFolder(null);
+  });
   const showDiff = (path: string) => {
     flush();
     setRevision(null);
@@ -412,6 +435,57 @@ export function Workspace({
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  // Drawer edge swipes (mobile only): drag in from the left screen edge opens
+  // the drawer; a horizontal swipe left on the drawer closes it. Read-only
+  // touch listeners — we never preventDefault, so scrolling and taps inside
+  // the drawer (and under the edge zone) are untouched.
+  const drawerSwipe = useRef<{ x: number; y: number } | null>(null);
+  const onDrawerTouchStart = (e: ReactTouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    // Swipes born on buttons/inputs are taps with jitter — let them be clicks.
+    if ((t.target as HTMLElement).closest?.("button, a, input, textarea")) return;
+    drawerSwipe.current = { x: t.clientX, y: t.clientY };
+  };
+  const onDrawerTouchEnd = (e: ReactTouchEvent) => {
+    const start = drawerSwipe.current;
+    drawerSwipe.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (dx < -56 && Math.abs(dx) > Math.abs(dy) * 1.5) setDrawerOpen(false);
+  };
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    if (mq.matches) return; // desktop: no edge gesture
+    let start: { x: number; y: number } | null = null;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (t.clientX > 28) return;
+      if ((t.target as HTMLElement).closest?.("button, a, input, textarea")) return;
+      start = { x: t.clientX, y: t.clientY };
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!start) return;
+      const s = start;
+      start = null;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - s.x;
+      const dy = t.clientY - s.y;
+      if (dx > 56 && Math.abs(dx) > Math.abs(dy) * 1.5) setDrawerOpen(true);
+    };
+    window.addEventListener("touchstart", onStart, { passive: true });
+    window.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", onStart);
+      window.removeEventListener("touchend", onEnd);
+    };
+    // Re-arm per drawer state so a closing swipe never instantly reopens.
+  }, [drawerOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const commands: PaletteCommand[] = [
     { id: "new", label: "New note", hint: "Ctrl N", run: newNote },
     { id: "daily", label: "Open today's note", run: dailyNote },
@@ -578,7 +652,11 @@ export function Workspace({
       )}
 
       {drawerOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden">
+        <div
+          className="fixed inset-0 z-40 flex md:hidden"
+          onTouchStart={onDrawerTouchStart}
+          onTouchEnd={onDrawerTouchEnd}
+        >
           <button
             type="button"
             aria-label="Close sidebar"
