@@ -1,5 +1,7 @@
 //! `.quireignore` exclusions: the app view (file tree, search) hides
-//! matching notes while git tracking, sync, and history stay untouched.
+//! matching notes while git tracking and history stay untouched; selective
+//! sync (the default) keeps them out of commits and pulls until the
+//! device's full-sync toggle turns on (see selective_sync_tests).
 //!
 //! The privacy guarantee under test: excluded content never reaches the
 //! UI surfaces — and once a file becomes excluded, its tokens are purged
@@ -99,30 +101,48 @@ fn search_never_returns_excluded_paths() {
 }
 
 #[test]
-fn sync_still_commits_and_pushes_excluded_notes() {
+fn selective_sync_keeps_excluded_notes_untracked_until_toggled() {
     let e = setup();
     e.a.write_note("public.md", "hello\n").unwrap();
     e.a.write_note("private/secret.md", "hush\n").unwrap();
     fs::write(e.a.root.join(".quireignore"), "private/\n").unwrap();
 
-    sync::sync(&e.a).expect("initial push");
+    sync::sync(&e.a).expect("initial push (selective by default)");
 
-    // The remote (via a second clone) received the excluded note AND the
-    // exclusion rules themselves — nothing was dropped from git.
+    // The exclusion rules themselves sync, but the excluded note stays
+    // local: not staged, not committed, not pushed (issue #16 semantics).
     let remote = e.a.git.remote_url().expect("remote").expect("remote url");
     let b = Vault::create(&e._tmp.path().join("b"), Some(&remote)).expect("vault b");
     sync::sync(&b).expect("b pull");
-    let b_files = b
+    let b_files: Vec<String> = b
         .fs_files()
         .expect("b files")
         .into_iter()
-        .map(|(rel, _)| rel);
-    for expected in ["public.md", "private/secret.md", ".quireignore"] {
-        assert!(
-            b_files.clone().any(|p| p == expected),
-            "second clone should contain {expected}"
-        );
-    }
+        .map(|(rel, _)| rel)
+        .collect();
+    assert!(b_files.contains(&"public.md".to_string()));
+    assert!(b_files.contains(&".quireignore".to_string()));
+    assert!(
+        !b_files.contains(&"private/secret.md".to_string()),
+        "the excluded note never reached the other device"
+    );
+
+    // The note is still on disk locally, and toggling full sync pushes it
+    // as a normal change — no loss in either direction.
+    assert_eq!(
+        fs::read_to_string(e.a.root.join("private/secret.md")).unwrap(),
+        "hush\n"
+    );
+    e.a.set_sync_excluded_files(true).expect("toggle full sync");
+    sync::sync(&e.a).expect("full sync pushes the excluded note");
+
+    // Selective b ignores the remote churn under the excluded path...
+    sync::sync(&b).expect("b selective pull");
+    assert!(!b.root.join("private/secret.md").exists());
+
+    // ...until b runs a full sync as well.
+    b.set_sync_excluded_files(true).expect("toggle b");
+    sync::sync(&b).expect("b full-pulls the excluded note");
     assert_eq!(
         fs::read_to_string(b.root.join("private/secret.md")).expect("excluded note synced"),
         "hush\n"
@@ -135,8 +155,8 @@ fn fs_tree_keeps_excluded_files_for_commits() {
     e.a.write_note("private/secret.md", "hush\n").unwrap();
     fs::write(e.a.root.join(".quireignore"), "private/\n").unwrap();
 
-    // The commit view (fs_tree) is the unfiltered one: the excluded note is
-    // part of the tree that gets committed, unlike the app view.
+    // The RAW working-tree view (fs_tree) is unfiltered — only the sync
+    // view (sync_tree) applies exclusions.
     let tree = e.a.fs_tree().expect("fs_tree");
     assert!(tree.contains_key("private/secret.md"));
     assert!(tree.contains_key(".quireignore"));

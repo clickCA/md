@@ -186,9 +186,10 @@ fn sync_inner(
         });
     }
 
-    let base_tree = flatten_blobs(&vault.git.tree_of(&vault.git.commit_tree_of(&mb)?)?);
-    let ours_tree = flatten_blobs(&vault.git.tree_of(&vault.git.commit_tree_of(&local)?)?);
-    let theirs_tree = flatten_blobs(&vault.git.tree_of(&vault.git.commit_tree_of(&remote)?)?);
+    let base_tree = vault.sync_blobs_of(&vault.git.tree_of(&vault.git.commit_tree_of(&mb)?)?)?;
+    let ours_tree = vault.sync_blobs_of(&vault.git.tree_of(&vault.git.commit_tree_of(&local)?)?)?;
+    let theirs_tree =
+        vault.sync_blobs_of(&vault.git.tree_of(&vault.git.commit_tree_of(&remote)?)?)?;
 
     let ours_time = vault.git.commit_time(&local)?;
     let theirs_time = vault.git.commit_time(&remote)?;
