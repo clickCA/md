@@ -50,11 +50,15 @@ pub fn clone_with(
     match sync_with(vault, creds) {
         Ok(outcome) => Ok(outcome),
         Err(e) => {
-            let branch = vault.git.current_branch()?;
-            let primary = vault.git.primary_remote()?;
-            let empty_remote = vault.git.head_oid()?.is_none()
-                && vault.git.remote_branch_oid_at(&primary, &branch)?.is_none();
-            if empty_remote {
+            // Only the *legitimate* empty-remote case may be tolerated: the
+            // fetch completed and genuinely found no history on either side.
+            // Previously any sync failure on a fresh repo was misread here as
+            // "empty remote" (both oids are None after a failed fetch too),
+            // which turned transport/TLS/auth failures into silent hollow
+            // vaults. `EmptyRemote` is raised only for that specific branch.
+            if e.downcast_ref::<crate::git_backend::EmptyRemote>()
+                .is_some()
+            {
                 return Ok(SyncOutcome {
                     action: "clone (empty remote)".into(),
                     head: None,
@@ -129,7 +133,7 @@ fn sync_inner(
     abort_point("fetching");
 
     let (local, remote) = match (local, remote) {
-        (None, None) => return Err(anyhow!("nothing to sync: no local or remote history")),
+        (None, None) => return Err(crate::git_backend::EmptyRemote.into()),
         (None, Some(r)) => {
             fast_forward(vault, &r)?;
             return Ok(SyncOutcome {

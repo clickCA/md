@@ -366,3 +366,21 @@ fn clone_tolerates_empty_remote() {
         "remote still configured"
     );
 }
+
+#[test]
+fn clone_propagates_transport_failure_instead_of_empty_remote() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let remote = tmp.path().join("missing.git").to_string_lossy().to_string();
+
+    let c = Vault::create(&tmp.path().join("c"), Some(&remote)).expect("open clone target");
+    let err = vault_core::sync::clone_with(&c, None)
+        .expect_err("a failed fetch must not be reported as a successful empty-remote clone");
+    assert!(
+        !err.to_string().contains("empty remote"),
+        "transport failure must surface, got: {err}"
+    );
+    assert!(
+        c.git.head_oid().unwrap().is_none(),
+        "nothing may be committed on a failed clone"
+    );
+}

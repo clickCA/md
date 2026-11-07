@@ -9,8 +9,9 @@ import { isMobile, persistLastVault, readLastVault } from "./lib/platform";
 import { useVault } from "./hooks/useVault";
 import { useTypography } from "./hooks/useTypography";
 import { useUpdate } from "./hooks/useUpdate";
-import { Workspace } from "./components/quire/workspace";
-import { UpdateBanner } from "./components/quire/update-banner";
+import { useBackClose } from "./hooks/useBackClose";
+import { Workspace } from "./components/quire/Workspace";
+import { UpdateBanner } from "./components/quire/UpdateBanner";
 import { Welcome } from "./components/Welcome";
 import ConflictCard from "./components/ConflictCard";
 import ClipboardMenu from "./components/ui/ClipboardMenu";
@@ -56,6 +57,13 @@ export default function App() {
   const vault = useVault(dir);
   const { status, busy, error, run, refresh } = vault;
   const updater = useUpdate();
+
+  // System back gesture (Android) closes dialogs instead of leaving the app.
+  useBackClose(settingsOpen, () => setSettingsOpen(false));
+  useBackClose(typographyOpen, () => setTypographyOpen(false));
+  useBackClose(setupDir !== null, () => setSetupDir(null));
+  useBackClose(addOpen, () => setAddOpen(false));
+  useBackClose(listOpen, () => setListOpen(false));
 
   useEffect(() => {
     void (async () => {
@@ -203,7 +211,7 @@ export default function App() {
 
   if (phase === "probing") {
     return (
-      <div className="grid h-dvh place-items-center">
+      <div className="grid h-dvh place-items-center pt-[env(safe-area-inset-top)]">
         <span className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
           <FileText className="size-5" aria-hidden />
         </span>
@@ -211,8 +219,12 @@ export default function App() {
     );
   }
 
+  // pt-[env(safe-area-inset-top)] keeps content clear of the Android status
+  // bar: the shell is edge-to-edge (MainActivity calls enableEdgeToEdge) with
+  // viewport-fit=cover, so the inset compensates for the system bar. It is 0
+  // on desktop.
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)]">
       {phase === "vault" && error && (
         <div className="bg-destructive/10 px-4 py-1.5 text-xs text-destructive">{error}</div>
       )}

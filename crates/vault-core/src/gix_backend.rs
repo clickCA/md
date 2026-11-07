@@ -10,6 +10,168 @@ use gix::remote::Direction;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[cfg(target_os = "android")]
+mod android_tls {
+    use anyhow::{anyhow, Result};
+    use std::any::Any;
+    use std::sync::{Arc, Mutex};
+
+    type HttpOptions = gix::protocol::transport::client::blocking_io::http::Options;
+    type ReqwestOptions = gix::protocol::transport::client::blocking_io::http::reqwest::Options;
+
+    /// The OS trust store on device: Android ships its CA bundle as PEM files
+    /// in `/system/etc/security/cacerts` (plus the Conscrypt APEX path on
+    /// newer releases, which may carry an updated set).
+    fn trusted_certs() -> Result<Vec<reqwest::tls::Certificate>> {
+        let mut out = Vec::new();
+        for dir in [
+            "/system/etc/security/cacerts",
+            "/apex/com.android.conscrypt/cacerts",
+        ] {
+            let entries = match std::fs::read_dir(dir) {
+                Ok(rd) => rd,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let Ok(bytes) = std::fs::read(entry.path()) else {
+                    continue;
+                };
+                // Each file is one or more PEM certificates; bundle handles both.
+                if let Ok(certs) = reqwest::tls::Certificate::from_pem_bundle(&bytes) {
+                    out.extend(certs);
+                }
+            }
+        }
+        if out.is_empty() {
+            return Err(anyhow!(
+                "no CA certificates found on device (looked in /system/etc/security/cacerts)"
+            ));
+        }
+        Ok(out)
+    }
+
+    /// HTTP transport options for Android.
+    ///
+    /// reqwest's rustls backend drives `rustls-platform-verifier`, which on
+    /// Android needs a Gradle/JNI integration (an AAR + init call from the
+    /// app's Java side) that Tauri apps don't provide — so every HTTPS request
+    /// dies with "prepare_fetch failed: Transport handshake failed". Route
+    /// around it: hand the transport explicit options that build the reqwest
+    /// client from the on-device PEM bundle instead, no JVM required. Desktop
+    /// is untouched (the platform verifier works there).
+    pub fn options() -> Result<Box<dyn Any>> {
+        let certs = trusted_certs()?;
+        let mut backend = ReqwestOptions::default();
+        backend.configure_client = Some(Box::new(move |builder| {
+            Ok(builder.tls_certs_only(certs.clone()))
+        }));
+        Ok(Box::new(HttpOptions {
+            backend: Some(Arc::new(Mutex::new(backend))),
+            ..HttpOptions::default()
+        }))
+    }
+}
+
+/// libgit2's TLS stack on Android cannot read CA files at all.
+///
+/// `openssl-src` builds OpenSSL with `no-stdio` for Android (it hardcodes the
+/// flag for this target), so `SSL_CTX_load_verify_locations` — and therefore
+/// libgit2's `GIT_OPT_SET_SSL_CERT_LOCATIONS` — fails with
+/// "x509 certificate routines::BIO lib" and every HTTPS push dies at
+/// certificate verification. Feed the system trust store in as X509 objects
+/// instead: libgit2's `GIT_OPT_ADD_SSL_X509_CERT` stores a cert without touching
+/// the filesystem, and `d2i_X509` is the DER parser of the very OpenSSL build
+/// libgit2 links.
+#[cfg(target_os = "android")]
+mod android_ca {
+    use base64::Engine as _;
+    use std::ffi::c_void;
+    use std::sync::Once;
+
+    /// Directory trust store is only read here, then handed to libgit2 in
+    /// memory; nothing is written to disk.
+    const STORES: [&str; 2] = [
+        "/system/etc/security/cacerts",
+        "/apex/com.android.conscrypt/cacerts",
+    ];
+
+    extern "C" {
+        fn d2i_X509(
+            cert: *mut *mut c_void,
+            inp: *mut *const u8,
+            len: std::ffi::c_long,
+        ) -> *mut c_void;
+        fn X509_free(cert: *mut c_void);
+    }
+
+    /// Decode one PEM certificate into DER.
+    fn pem_blocks(pem: &str) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        let mut b64 = String::new();
+        let mut inside = false;
+        for line in pem.lines() {
+            let line = line.trim();
+            if line == "-----BEGIN CERTIFICATE-----" {
+                inside = true;
+                b64.clear();
+            } else if line == "-----END CERTIFICATE-----" {
+                if inside {
+                    if let Ok(der) = base64::engine::general_purpose::STANDARD.decode(&b64) {
+                        out.push(der);
+                    }
+                }
+                inside = false;
+            } else if inside {
+                b64.push_str(line);
+            }
+        }
+        out
+    }
+
+    /// Add a DER certificate to libgit2's OpenSSL store.
+    fn add_der(der: &[u8]) -> bool {
+        let mut cursor = der.as_ptr();
+        // SAFETY: `cursor` is valid for `der.len()` bytes for the call.
+        let x509 = unsafe { d2i_X509(std::ptr::null_mut(), &mut cursor, der.len() as _) };
+        if x509.is_null() {
+            return false;
+        }
+        // SAFETY: `x509` is a live X509; libgit2 retains its own reference in
+        // the store, so releasing ours afterwards is correct.
+        let rc = unsafe {
+            libgit2_sys::git_libgit2_opts(
+                libgit2_sys::GIT_OPT_ADD_SSL_X509_CERT as i32,
+                x509 as *const c_void,
+            )
+        };
+        unsafe { X509_free(x509) };
+        rc == 0
+    }
+
+    /// Install the device's CA certificates into libgit2 once per process.
+    /// Must run after libgit2 is initialized (any `git2::Repository` call).
+    pub fn install() {
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            for dir in STORES {
+                let Ok(entries) = std::fs::read_dir(dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let Ok(pem) = std::fs::read_to_string(entry.path()) else {
+                        continue;
+                    };
+                    for der in pem_blocks(&pem) {
+                        // Duplicates across the two store locations fail to add;
+                        // that is harmless and already-covered certs stay.
+                        let _ = add_der(&der);
+                    }
+                }
+            }
+        });
+    }
+}
+
 pub struct GixBackend {
     repo: gix::Repository,
 }
@@ -143,6 +305,10 @@ impl GixBackend {
             .ok_or_else(|| anyhow!("push requires a worktree repository"))?
             .to_path_buf();
         let repo = git2::Repository::open(&workdir)?;
+        // libgit2's OpenSSL on Android is built without stdio, so it cannot read
+        // CA files — feed the system trust store in as X509 objects instead.
+        #[cfg(target_os = "android")]
+        android_ca::install();
         let mut r = repo.find_remote(remote)?;
         let mut cbs = git2::RemoteCallbacks::new();
         let rejected = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
@@ -492,6 +658,14 @@ impl GitBackend for GixBackend {
         // locally for this remote.
         let creds = self.resolve_credentials(creds, remote)?;
         let mut con = r.connect(Direction::Fetch)?;
+        // Android: reqwest's rustls platform-verifier cannot run inside a
+        // Tauri app (no Gradle/JNI bridge), so give the transport options that
+        // build the HTTP client from the on-device PEM trust store instead.
+        // Without this every HTTPS fetch dies in the TLS handshake.
+        #[cfg(target_os = "android")]
+        con.set_transport_options(
+            android_tls::options().context("prepare Android HTTP transport options")?,
+        );
         match creds {
             Some(c) => {
                 let account = gix::sec::identity::Account {
