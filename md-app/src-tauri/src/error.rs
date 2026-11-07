@@ -65,8 +65,10 @@ impl From<anyhow::Error> for AppError {
             return AppError::Auth;
         }
         // libgit2 (push path) reports auth failures as plain text; classify by
-        // message so both transports produce the same typed code.
-        let msg = e.to_string();
+        // message so both transports produce the same typed code. Use the full
+        // `anyhow` chain (`{e:#}`): the outer context alone ("libgit2 push")
+        // hides the cause from both this classifier and the UI.
+        let msg = format!("{e:#}");
         let lower = msg.to_lowercase();
         if lower.contains("auth") || lower.contains("credential") {
             return AppError::Auth;

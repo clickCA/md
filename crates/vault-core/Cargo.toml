@@ -10,6 +10,15 @@ git2 = { workspace = true }
 imara-diff = { workspace = true }
 rusqlite = { workspace = true }
 anyhow = { workspace = true }
+# Only used on Android: builds the HTTP client from the on-device PEM trust
+# store (see `android_tls` in gix_backend.rs) — reqwest's default rustls
+# path selects `rustls-platform-verifier`, which needs a Gradle/JNI bridge
+# Tauri apps don't have. Features mirror what gix-transport enables.
+reqwest = { version = "0.13", default-features = false, features = [
+    "blocking",
+    "rustls",
+] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
