@@ -14,6 +14,7 @@ const noop = () => {};
 function renderTree(
   onOpen: (path: string) => void = noop,
   onDelete: (path: string) => void = noop,
+  onSummarizeFolder: (folder: string) => void = noop,
 ) {
   return render(
     <FileTree
@@ -28,6 +29,7 @@ function renderTree(
       onMove={noop}
       onDelete={onDelete}
       onReveal={noop}
+      onSummarizeFolder={onSummarizeFolder}
     />,
   );
 }
@@ -44,6 +46,16 @@ describe("FileTree", () => {
     await renderTree(onOpen);
     await page.getByText("Welcome").click();
     expect(onOpen).toHaveBeenCalledWith("Welcome.md");
+  });
+
+  it("summarizes a folder from its right-click menu", async () => {
+    const onSummarizeFolder = vi.fn();
+    await renderTree(noop, noop, onSummarizeFolder);
+    await page.getByText("Projects").click({ button: "right" });
+    const item = page.getByRole("menuitem", { name: "Summarize with AI" });
+    await expect.element(item).toBeInTheDocument();
+    await item.click();
+    expect(onSummarizeFolder).toHaveBeenCalledWith("Projects");
   });
 
   it("deletes a note from its right-click menu", async () => {

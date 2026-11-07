@@ -30,6 +30,8 @@ type Props = {
   onMove: (from: string, toFolder: string) => void;
   onDelete: (path: string) => void;
   onReveal: (path: string) => void;
+  /** Right-click a folder → "Summarize with AI". */
+  onSummarizeFolder: (folder: string) => void;
 };
 
 export function FileTree({
@@ -44,12 +46,16 @@ export function FileTree({
   onMove,
   onDelete,
   onReveal,
+  onSummarizeFolder,
 }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   // Row targeted by the last right-click; the shared menu reads it when open.
-  const [menuPath, setMenuPath] = useState<string | null>(null);
+  // The kind decides which items apply (files open/delete, folders summarize).
+  const [menuTarget, setMenuTarget] = useState<{ path: string; kind: "file" | "folder" } | null>(
+    null,
+  );
   // Typing re-creates the `files` array (the edited note object) on every
   // keystroke, but paths and git statuses only change on save/refresh — key
   // the tree and status map on that content-independent signature so
@@ -154,7 +160,7 @@ export function FileTree({
               statuses={statuses}
               onToggle={toggle}
               onOpen={onOpen}
-              onMenuTarget={setMenuPath}
+              onMenuTarget={(path, kind) => setMenuTarget({ path, kind })}
               dnd={dnd}
             />
           ))}
@@ -176,28 +182,47 @@ export function FileTree({
         <ContextMenu.Portal>
           <ContextMenu.Positioner sideOffset={6} className="z-50 outline-none">
             <ContextMenu.Popup className="min-w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
-              <ContextMenu.Item
-                className={menuItemCls}
-                onClick={() => menuPath && onOpen(menuPath)}
-              >
-                Open
-              </ContextMenu.Item>
-              <ContextMenu.Item
-                className={menuItemCls}
-                onClick={() => menuPath && onReveal(menuPath)}
-              >
-                Reveal in file manager
-              </ContextMenu.Item>
-              <ContextMenu.Separator className="mx-2 my-1 h-px bg-border" />
-              <ContextMenu.Item
-                className={cn(
-                  menuItemCls,
-                  "text-destructive data-[highlighted]:bg-destructive data-[highlighted]:text-destructive-foreground",
-                )}
-                onClick={() => menuPath && onDelete(menuPath)}
-              >
-                Delete
-              </ContextMenu.Item>
+              {menuTarget?.kind === "folder" ? (
+                <>
+                  <ContextMenu.Item
+                    className={menuItemCls}
+                    onClick={() => menuTarget && onSummarizeFolder(menuTarget.path)}
+                  >
+                    Summarize with AI
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    className={menuItemCls}
+                    onClick={() => menuTarget && onReveal(menuTarget.path)}
+                  >
+                    Reveal in file manager
+                  </ContextMenu.Item>
+                </>
+              ) : (
+                <>
+                  <ContextMenu.Item
+                    className={menuItemCls}
+                    onClick={() => menuTarget && onOpen(menuTarget.path)}
+                  >
+                    Open
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    className={menuItemCls}
+                    onClick={() => menuTarget && onReveal(menuTarget.path)}
+                  >
+                    Reveal in file manager
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator className="mx-2 my-1 h-px bg-border" />
+                  <ContextMenu.Item
+                    className={cn(
+                      menuItemCls,
+                      "text-destructive data-[highlighted]:bg-destructive data-[highlighted]:text-destructive-foreground",
+                    )}
+                    onClick={() => menuTarget && onDelete(menuTarget.path)}
+                  >
+                    Delete
+                  </ContextMenu.Item>
+                </>
+              )}
             </ContextMenu.Popup>
           </ContextMenu.Positioner>
         </ContextMenu.Portal>
@@ -245,7 +270,7 @@ type NodeProps = {
   statuses: Map<string, GitStatus>;
   onToggle: (path: string) => void;
   onOpen: (path: string) => void;
-  onMenuTarget: (path: string) => void;
+  onMenuTarget: (path: string, kind: "file" | "folder") => void;
   dnd: Dnd;
 };
 
@@ -283,25 +308,30 @@ function Node({
           isTarget && "bg-primary/10 outline outline-1 -outline-offset-1 outline-primary/50",
         )}
       >
-        <button
-          type="button"
-          {...drag}
-          onClick={() => onToggle(node.path)}
-          style={indent}
-          className={cn(
-            "flex h-7 w-full items-center gap-1 rounded-md pr-2 text-left text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60",
-            isDragging && "opacity-40",
-          )}
-        >
-          <ChevronRight
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform",
-              open && "rotate-90",
-            )}
-            aria-hidden
-          />
-          <span className="min-w-0 flex-1 truncate">{node.name}</span>
-        </button>
+        <ContextMenu.Trigger
+          render={
+            <button
+              type="button"
+              {...drag}
+              onClick={() => onToggle(node.path)}
+              onContextMenu={() => onMenuTarget(node.path, "folder")}
+              style={indent}
+              className={cn(
+                "flex h-7 w-full items-center gap-1 rounded-md pr-2 text-left text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60",
+                isDragging && "opacity-40",
+              )}
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                  open && "rotate-90",
+                )}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate">{node.name}</span>
+            </button>
+          }
+        />
         {open && node.children.length > 0 && (
           <ul role="group">
             {node.children.map((child) => (
@@ -337,7 +367,7 @@ function Node({
             type="button"
             {...drag}
             onClick={() => onOpen(node.path)}
-            onContextMenu={() => onMenuTarget(node.path)}
+            onContextMenu={() => onMenuTarget(node.path, "file")}
             onDragOver={(e) => dnd.onDragOver(parent, e)}
             onDrop={(e) => dnd.onDrop(parent, e)}
             style={indent}

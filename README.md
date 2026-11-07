@@ -77,6 +77,10 @@ Files + SQLite index per vault · standard Git remote · single main branch
   "sync excluded files too" toggle forces a full sync with no data loss
   either way. Same habits as `.gitignore`: folders, globs, `!` re-include;
   the file itself syncs, so rules follow the vault across devices
+- **AI knowledge**: related notes in the inspector (shared tokens + link
+  graph), *ask your notes* with clickable citations, and a **summarize this
+  folder** preview — Accept writes `Summary.md` through the normal note path;
+  nothing is written before you accept, and excluded notes never enter a prompt
 
 ## Status
 
