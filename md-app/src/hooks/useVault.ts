@@ -517,6 +517,16 @@ export function useVault(dir: string) {
     },
     [dir, run, refresh, creds],
   );
+  /** Toggle selective sync (device-local): excluded files in or out of sync. */
+  const setSyncExcluded = useCallback(
+    async (on: boolean) => {
+      await run("toggle selective sync", async () => {
+        await invoke("vault_set_sync_excluded", { dir, on });
+        await refresh();
+      });
+    },
+    [dir, run, refresh],
+  );
 
   /** Local branches of the vault. */
   const loadBranches = useCallback(async (): Promise<Branches> => {
@@ -589,6 +599,7 @@ export function useVault(dir: string) {
     noteRevision,
     restoreNote,
     restoreSnapshot,
+    setSyncExcluded,
     brokenLinks,
     loadRemotes,
     remoteAdd,

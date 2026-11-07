@@ -72,9 +72,11 @@ Files + SQLite index per vault · standard Git remote · single main branch
   [docs/adr/2026-10-30-search-index.md](docs/adr/2026-10-30-search-index.md)
 - **Path exclusions**: a `.quireignore` file at the vault root hides notes
   from the app (file tree, note listing, search, AI) without touching git —
-  excluded notes stay on disk, tracked, and synced. Same habits as
-  `.gitignore`: folders, globs, `!` re-include; the file itself syncs, so
-  rules follow the vault across devices
+  excluded notes stay on disk and in history, hidden from the app and —
+  by default (selective sync) — from commits and pulls; a per-device
+  "sync excluded files too" toggle forces a full sync with no data loss
+  either way. Same habits as `.gitignore`: folders, globs, `!` re-include;
+  the file itself syncs, so rules follow the vault across devices
 
 ## Status
 

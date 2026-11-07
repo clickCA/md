@@ -3,9 +3,12 @@
 //! Exclusions are an **app-view** filter, deliberately separate from
 //! `.gitignore`: matching notes stay on disk, tracked by git, and synced —
 //! they are only hidden from the app's own surfaces (file tree, note
-//! listing, search, and the AI features built on them). The sync engine
-//! (`fs_tree` / `commit_pending` / `materialize`) never consults this file,
-//! so git tracking and history are unaffected.
+//! listing, search, and the AI features built on them). The same list also
+//! drives **selective sync** (see `Vault::filter_sync_tree`): with the
+//! device-local toggle off — the default — excluded paths are never staged,
+//! committed, pushed, merged, or checked out by the sync machinery; the
+//! toggle forces a full sync. Git's own semantics are untouched either way:
+//! excluded notes stay on disk, and anything already in history remains.
 //!
 //! Syntax follows `.gitignore` habits users already know, scoped down to
 //! what a note vault needs — each rule parsed from one line:

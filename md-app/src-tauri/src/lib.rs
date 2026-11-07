@@ -64,6 +64,7 @@ pub fn run() {
             commands::vault::vault_probe,
             commands::vault::vault_make,
             commands::vault::vault_status,
+            commands::vault::vault_set_sync_excluded,
             commands::vault::vault_sync,
             commands::vault::vault_sync_from,
             commands::vault::vaults_home,

@@ -27,6 +27,9 @@ export type GitPanelProps = {
   remoteHead: string | null;
   changes: VaultFile[];
   sync: "idle" | "pulling" | "pushing" | "syncing";
+  /** Selective sync: excluded files stay out of commits/pushes. */
+  syncExcluded: boolean;
+  onToggleSyncExcluded: (on: boolean) => void;
   lastRun: Journal | null;
   lastSyncError: string | null;
   /** Note open in the editor; the note-scoped history follows it. */
@@ -69,6 +72,8 @@ export function GitPanel({
   remoteHead,
   changes,
   sync,
+  syncExcluded,
+  onToggleSyncExcluded,
   lastRun,
   lastSyncError,
   activePath,
@@ -200,6 +205,34 @@ export function GitPanel({
           onSyncFrom={onSyncFrom}
           disabled={busy}
         />
+
+        <button
+          type="button"
+          onClick={() => onToggleSyncExcluded(!syncExcluded)}
+          disabled={busy}
+          role="switch"
+          aria-checked={syncExcluded}
+          title="Sync the files excluded via .quireignore too (full sync; nothing is lost toggling either way)"
+          className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          <span
+            className={cn(
+              "flex h-3 w-5 shrink-0 items-center rounded-full px-0.5 transition-colors",
+              syncExcluded ? "bg-primary" : "bg-border",
+            )}
+            aria-hidden
+          >
+            <span
+              className={cn(
+                "size-2 rounded-full bg-background transition-transform",
+                syncExcluded && "translate-x-2",
+              )}
+            />
+          </span>
+          <span className="min-w-0 truncate">
+            {syncExcluded ? "Syncing excluded files too" : "Excluded files stay out of sync"}
+          </span>
+        </button>
 
         <button
           type="button"

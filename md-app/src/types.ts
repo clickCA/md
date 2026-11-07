@@ -18,6 +18,8 @@ export interface Status {
   head: string | null;
   remoteMain: string | null;
   pending: boolean;
+  /** Selective sync: excluded paths stay out of commits/pushes (device-local). */
+  syncExcluded: boolean;
   conflicts: Conflict[];
   lastRun: Journal | null;
 }

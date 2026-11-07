@@ -501,6 +501,8 @@ export function Workspace({
           remoteHead={gitState?.remote ?? status?.remoteMain ?? null}
           changes={changes}
           sync={sync}
+          syncExcluded={status?.syncExcluded ?? false}
+          onToggleSyncExcluded={(on) => void vault.setSyncExcluded(on)}
           lastRun={status?.lastRun ?? null}
           lastSyncError={vault.lastSyncError}
           activePath={active}

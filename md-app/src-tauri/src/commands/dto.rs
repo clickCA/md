@@ -52,6 +52,8 @@ pub struct StatusDto {
     pub head: Option<String>,
     pub remote_main: Option<String>,
     pub pending: bool,
+    /// Selective sync toggle: excluded paths stay out of commits/pushes.
+    pub sync_excluded: bool,
     pub conflicts: Vec<ConflictDto>,
     pub last_run: Option<JournalDto>,
 }
@@ -70,8 +72,10 @@ pub fn status_dto(vault: &Vault) -> Result<StatusDto, AppError> {
     let head = vault.git.head_oid()?;
     let branch = vault.git.current_branch()?;
     let remote_main = vault.git.remote_branch_oid(&branch)?;
-    let fs_blobs = vault_core::merge::flatten_blobs(&vault.fs_tree()?);
-    let head_blobs = vault_core::merge::flatten_blobs(&vault.git.head_tree()?);
+    // Pending in the sync view: excluded-path edits never surface.
+    let fs_blobs = vault_core::merge::flatten_blobs(&vault.sync_tree()?);
+    let head_blobs =
+        vault_core::merge::flatten_blobs(&vault.filter_sync_tree(vault.git.head_tree()?)?);
     let conflicts = vault
         .db
         .conflicts()?
@@ -98,6 +102,7 @@ pub fn status_dto(vault: &Vault) -> Result<StatusDto, AppError> {
         head,
         remote_main,
         pending: fs_blobs != head_blobs,
+        sync_excluded: vault.sync_excluded_files(),
         conflicts,
         last_run,
     })

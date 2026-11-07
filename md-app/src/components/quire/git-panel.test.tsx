@@ -70,6 +70,8 @@ async function renderPanel(
       remoteHead={null}
       changes={changes}
       sync="idle"
+      syncExcluded={false}
+      onToggleSyncExcluded={noop}
       lastRun={null}
       lastSyncError={null}
       activePath={activePath}
@@ -196,5 +198,56 @@ describe("GitPanel branches", () => {
 
     expect(onCreateBranch).toHaveBeenCalledWith("drafts");
     expect(onSwitchBranch).not.toHaveBeenCalled();
+  });
+});
+
+describe("GitPanel selective sync", () => {
+  it("toggles excluded-file syncing from the status row", async () => {
+    const setSyncExcludedCalls: boolean[] = [];
+    const onToggle = (on: boolean) => setSyncExcludedCalls.push(on);
+    const onOpen = vi.fn();
+    await render(
+      <GitPanel
+        name="Notes"
+        isRepo
+        hasRemote
+        relation="in-sync"
+        branch="main"
+        head={null}
+        remoteHead={null}
+        changes={[]}
+        sync="idle"
+        syncExcluded={false}
+        onToggleSyncExcluded={onToggle}
+        lastRun={null}
+        lastSyncError={null}
+        activePath="notes/alpha.md"
+        loadNoteHistory={vi.fn().mockResolvedValue([])}
+        loadVaultHistory={vi.fn().mockResolvedValue([])}
+        onShowRevision={noop}
+        onRestoreSnapshot={noop}
+        loadBranches={vi.fn().mockResolvedValue({ current: "main", branches: ["main"] })}
+        onSwitchBranch={noop}
+        onCreateBranch={vi.fn().mockResolvedValue(undefined)}
+        onOpen={onOpen}
+        onShowDiff={noop}
+        diffPath={null}
+        onSync={noop}
+        onGitAction={noop}
+        onInit={noop}
+        loadRemotes={vi.fn().mockResolvedValue({ primary: "origin", remotes: [] })}
+        onRemoteAdd={vi.fn().mockResolvedValue(undefined)}
+        onRemoteRemove={noop}
+        onRemoteRename={vi.fn().mockResolvedValue(undefined)}
+        onRemoteSetPrimary={noop}
+        onSyncFrom={noop}
+      />,
+    );
+
+    const sw = page.getByRole("switch");
+    await expect.element(sw).toBeVisible();
+    await expect.element(sw).not.toHaveAttribute("aria-checked", "true");
+    await sw.click();
+    expect(setSyncExcludedCalls).toEqual([true]);
   });
 });
