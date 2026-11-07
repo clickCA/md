@@ -48,8 +48,19 @@ pub trait GitBackend {
     fn open(path: &Path) -> Result<Self>
     where
         Self: Sized;
-    fn set_remote(&mut self, url: &str) -> Result<()>;
+    fn set_remote(&mut self, name: &str, url: &str) -> Result<()>;
     fn remote_url(&self) -> Result<Option<String>>;
+    /// All configured remotes (name, url), sorted by name.
+    fn list_remotes(&self) -> Result<Vec<(String, String)>>;
+    /// URL of one remote, if it exists.
+    fn remote_url_of(&self, name: &str) -> Result<Option<String>>;
+    fn add_remote(&mut self, name: &str, url: &str) -> Result<()>;
+    fn remove_remote(&mut self, name: &str) -> Result<()>;
+    fn rename_remote(&mut self, old: &str, new: &str) -> Result<()>;
+    /// The push target ("primary"). Stored device-local in the repo config;
+    /// defaults to `origin`.
+    fn primary_remote(&self) -> Result<String>;
+    fn set_primary_remote(&mut self, name: &str) -> Result<()>;
     /// Branch HEAD points at ("main" until/unless switched; detached HEAD
     /// reads as "main" — the vault model never detaches).
     fn current_branch(&self) -> Result<String>;
@@ -66,9 +77,20 @@ pub trait GitBackend {
     fn remote_branch_oid(&self, branch: &str) -> Result<Option<Oid>>;
     fn head_oid(&self) -> Result<Option<Oid>>;
     fn fetch(&self, creds: Option<&Credentials>) -> Result<Option<Oid>>;
-    /// Publish the current branch to origin (same branch name).
+    /// Fetch `remote` and return the tip of the current branch there.
+    fn fetch_from(&self, remote: &str, creds: Option<&Credentials>) -> Result<Option<Oid>>;
+    /// Tip of `branch` at `remote` (refs/remotes/<remote>/<branch>).
+    fn remote_branch_oid_at(&self, remote: &str, branch: &str) -> Result<Option<Oid>>;
+    /// Publish the current branch to its primary remote.
     fn push_current(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()>;
-    /// Overwrite origin's current branch with the local tip.
+    /// Publish the current branch to a specific remote.
+    fn push_to(
+        &self,
+        remote: &str,
+        expected_local: &Oid,
+        creds: Option<&Credentials>,
+    ) -> Result<()>;
+    /// Overwrite the primary remote's current branch with the local tip.
     fn force_push_current(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()>;
     fn merge_base(&self, a: &Oid, b: &Oid) -> Result<Option<Oid>>;
     fn commit_tree_of(&self, commit: &Oid) -> Result<Oid>;
