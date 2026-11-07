@@ -22,3 +22,10 @@ reqwest = { version = "0.13", default-features = false, features = [
 [dev-dependencies]
 tempfile = { workspace = true }
 
+# Android: libgit2's OpenSSL is built with `no-stdio` (openssl-src hardcodes it
+# for this target), so it cannot read CA files — certs must be added in memory
+# via `GIT_OPT_ADD_SSL_X509_CERT`. `d2i_X509` comes from the same OpenSSL that
+# libgit2 links, and base64 decodes the on-device PEM trust store.
+[target.'cfg(target_os = "android")'.dependencies]
+libgit2-sys = "0.18"
+base64 = "0.23"
