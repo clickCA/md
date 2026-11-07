@@ -83,8 +83,9 @@ impl Vault {
     }
 
     /// Files the app should *see*: `fs_files` minus `.quireignore` matches.
-    /// File tree, note listing, and search build on this; sync and git keep
-    /// the unfiltered `fs_files` view so tracking and history are unaffected.
+    /// File tree, note listing, and search build on this; the sync machinery
+    /// uses its own toggle-aware view (`sync_tree`) and git tracking and
+    /// history are unaffected either way.
     pub fn visible_files(&self) -> Result<Vec<(String, PathBuf)>> {
         let exclusions = crate::exclude::Exclusions::load(&self.root);
         if exclusions.is_empty() {
@@ -310,9 +311,74 @@ fn mtime_secs(path: &Path) -> i64 {
 }
 
 impl Vault {
+    /// Selective sync toggle: when off (the default), the sync machinery
+    /// treats `.quireignore` matches as invisible — their edits never
+    /// commit, remote churn under them never lands in the working tree.
+    /// When on, sync runs full and the on-disk state flows through the
+    /// normal commit path — no data loss in either direction.
+    pub fn sync_excluded_files(&self) -> bool {
+        self.db.get_setting("sync_excluded").as_deref() == Some("1")
+    }
+
+    pub fn set_sync_excluded_files(&self, on: bool) -> Result<()> {
+        self.db
+            .set_setting("sync_excluded", if on { "1" } else { "0" })?;
+        if on {
+            // Reconcile before the first full commit: a selective device's
+            // working copy intentionally lacks excluded paths that HEAD (and
+            // the remote) may still carry. Restore exactly those missing
+            // paths from HEAD — and nothing else — so the toggle-on commit
+            // records real state instead of phantom deletions, while local
+            // edits on disk always win. No data loss in either direction.
+            let head_tree = self.git.head_tree()?;
+            let exclusions = crate::exclude::Exclusions::load(&self.root);
+            if !exclusions.is_empty() {
+                let mut blobs = crate::merge::flatten_blobs(&head_tree);
+                blobs.retain(|rel, _| exclusions.is_excluded(rel));
+                let on_disk: std::collections::BTreeSet<String> =
+                    self.fs_files()?.into_iter().map(|(rel, _)| rel).collect();
+                blobs.retain(|rel, _| !on_disk.contains(rel));
+                if !blobs.is_empty() {
+                    self.materialize(&blobs)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Drop excluded paths from a tree for the sync view (no-op when the
+    /// toggle is on or no exclusions exist).
+    pub fn filter_sync_tree(&self, tree: Tree) -> Result<Tree> {
+        if self.sync_excluded_files() {
+            return Ok(tree);
+        }
+        let exclusions = crate::exclude::Exclusions::load(&self.root);
+        if exclusions.is_empty() {
+            return Ok(tree);
+        }
+        Ok(tree
+            .into_iter()
+            .filter(|(rel, _)| !exclusions.is_excluded(rel))
+            .collect())
+    }
+
+    /// The sync's view of the working tree (see [`Self::filter_sync_tree`]).
+    pub fn sync_tree(&self) -> Result<Tree> {
+        let tree = self.fs_tree()?;
+        self.filter_sync_tree(tree)
+    }
+
+    /// Flattened content of `tree` in the sync view: exclusions dropped
+    /// when selective sync is on, so a merge never sees — or conflicts
+    /// over — excluded paths.
+    pub fn sync_blobs_of(&self, tree: &Tree) -> Result<std::collections::BTreeMap<String, String>> {
+        let filtered = self.filter_sync_tree(tree.clone())?;
+        Ok(crate::merge::flatten_blobs(&filtered))
+    }
+
     pub fn commit_pending(&self, message: &str) -> Result<Option<Oid>> {
-        let fs_tree = self.fs_tree()?;
-        let head_tree = self.git.head_tree()?;
+        let fs_tree = self.sync_tree()?;
+        let head_tree = self.filter_sync_tree(self.git.head_tree()?)?;
         let fs_blobs = crate::merge::flatten_blobs(&fs_tree);
         let head_blobs = crate::merge::flatten_blobs(&head_tree);
         if fs_blobs == head_blobs {
@@ -392,9 +458,12 @@ impl Vault {
             remote_tip
         };
 
-        // Clean-tree guard, mirroring commit_pending's pending check.
-        let fs_blobs = crate::merge::flatten_blobs(&self.fs_tree()?);
-        let head_blobs = crate::merge::flatten_blobs(&self.git.head_tree()?);
+        // Clean-tree guard, mirroring commit_pending's pending check — in
+        // the sync view, so excluded-path edits (never committed) don't
+        // block switching, and a switch never rewrites them.
+        let fs_blobs = crate::merge::flatten_blobs(&self.sync_tree()?);
+        let head_blobs =
+            crate::merge::flatten_blobs(&self.filter_sync_tree(self.git.head_tree()?)?);
         if fs_blobs != head_blobs {
             anyhow::bail!(
                 "uncommitted changes — save and sync (or commit) before switching branches"
@@ -411,13 +480,36 @@ impl Vault {
     }
 
     pub fn materialize(&self, blobs: &std::collections::BTreeMap<String, String>) -> Result<()> {
+        // Selective sync: excluded paths are never written or deleted by the
+        // sync machinery — remote churn under an excluded path does not
+        // touch the working copy (edits there stay on disk untouched).
+        let skip = if self.sync_excluded_files() {
+            None
+        } else {
+            let exclusions = crate::exclude::Exclusions::load(&self.root);
+            if exclusions.is_empty() {
+                None
+            } else {
+                Some(exclusions)
+            }
+        };
         let desired: std::collections::BTreeSet<String> = blobs.keys().cloned().collect();
         for (rel, path) in self.fs_files()? {
+            if let Some(exclusions) = &skip {
+                if exclusions.is_excluded(&rel) {
+                    continue;
+                }
+            }
             if !desired.contains(&rel) {
                 fs::remove_file(&path)?;
             }
         }
         for (rel, oid) in blobs {
+            if let Some(exclusions) = &skip {
+                if exclusions.is_excluded(rel) {
+                    continue;
+                }
+            }
             let data = self.git.read_blob(oid)?;
             let path = self.root.join(rel);
             if let Some(parent) = path.parent() {
