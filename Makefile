@@ -98,7 +98,19 @@ pacman-publish: ## Refresh pacman repo (md-repo) from the latest release
 	packaging/arch/publish.sh $(TAG)
 
 android: ## Build debug APK (arm64) — requires ~/Android/env.sh (JDK + Android SDK)
-	source $(HOME)/Android/env.sh && \
+	@source $(HOME)/Android/env.sh && \
+	TC="$$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" && \
+	SHIMS="$$HOME/.cache/md/android-shims" && mkdir -p "$$SHIMS" && \
+	for p in x86_64-linux-android aarch64-linux-android armv7a-linux-androideabi i686-linux-android; do \
+	  for tool in clang clang++; do \
+	    printf '#!/bin/sh\nexec %s/%s21-%s "$$@"\n' "$$TC" "$$p" "$$tool" > "$$SHIMS/$$p-$$tool"; \
+	    chmod +x "$$SHIMS/$$p-$$tool"; \
+	  done; \
+	  for tool in ar ranlib nm strip objcopy as ld; do ln -sf "$$TC/llvm-$$tool" "$$SHIMS/$$p-$$tool"; done; \
+	done && \
+	PATH="$$SHIMS:$$PATH" \
+	CC_aarch64_linux_android="$$SHIMS/aarch64-linux-android-clang" \
+	AR_aarch64_linux_android="$$SHIMS/aarch64-linux-android-ar" \
 	$(PNPM) --filter md-app tauri android build --debug --apk --target aarch64
 
 android-log: ## Follow the app's logcat output for a connected device

@@ -21,6 +21,21 @@ impl std::fmt::Display for AuthRequired {
 
 impl std::error::Error for AuthRequired {}
 
+/// Typed marker for "the remote has no commits at all" — the one case
+/// `clone_with` legitimately tolerates as an empty remote (like `git clone`).
+/// Transport/TLS/auth failures must never be confused with this, otherwise a
+/// failed clone is misreported as success on an empty vault.
+#[derive(Debug)]
+pub struct EmptyRemote;
+
+impl std::fmt::Display for EmptyRemote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "nothing to sync: no local or remote history")
+    }
+}
+
+impl std::error::Error for EmptyRemote {}
+
 #[derive(Debug, Clone)]
 pub struct TreeEntry {
     pub oid: Oid,

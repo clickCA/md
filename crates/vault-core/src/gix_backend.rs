@@ -10,6 +10,68 @@ use gix::remote::Direction;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[cfg(target_os = "android")]
+mod android_tls {
+    use anyhow::{anyhow, Result};
+    use std::any::Any;
+    use std::sync::{Arc, Mutex};
+
+    type HttpOptions = gix::protocol::transport::client::blocking_io::http::Options;
+    type ReqwestOptions = gix::protocol::transport::client::blocking_io::http::reqwest::Options;
+
+    /// The OS trust store on device: Android ships its CA bundle as PEM files
+    /// in `/system/etc/security/cacerts` (plus the Conscrypt APEX path on
+    /// newer releases, which may carry an updated set).
+    fn trusted_certs() -> Result<Vec<reqwest::tls::Certificate>> {
+        let mut out = Vec::new();
+        for dir in [
+            "/system/etc/security/cacerts",
+            "/apex/com.android.conscrypt/cacerts",
+        ] {
+            let entries = match std::fs::read_dir(dir) {
+                Ok(rd) => rd,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let Ok(bytes) = std::fs::read(entry.path()) else {
+                    continue;
+                };
+                // Each file is one or more PEM certificates; bundle handles both.
+                if let Ok(certs) = reqwest::tls::Certificate::from_pem_bundle(&bytes) {
+                    out.extend(certs);
+                }
+            }
+        }
+        if out.is_empty() {
+            return Err(anyhow!(
+                "no CA certificates found on device (looked in /system/etc/security/cacerts)"
+            ));
+        }
+        Ok(out)
+    }
+
+    /// HTTP transport options for Android.
+    ///
+    /// reqwest's rustls backend drives `rustls-platform-verifier`, which on
+    /// Android needs a Gradle/JNI integration (an AAR + init call from the
+    /// app's Java side) that Tauri apps don't provide — so every HTTPS request
+    /// dies with "prepare_fetch failed: Transport handshake failed". Route
+    /// around it: hand the transport explicit options that build the reqwest
+    /// client from the on-device PEM bundle instead, no JVM required. Desktop
+    /// is untouched (the platform verifier works there).
+    pub fn options() -> Result<Box<dyn Any>> {
+        let certs = trusted_certs()?;
+        let mut backend = ReqwestOptions::default();
+        backend.configure_client = Some(Box::new(move |builder| {
+            Ok(builder.tls_certs_only(certs.clone()))
+        }));
+        Ok(Box::new(HttpOptions {
+            backend: Some(Arc::new(Mutex::new(backend))),
+            ..HttpOptions::default()
+        }))
+    }
+}
+
 pub struct GixBackend {
     repo: gix::Repository,
 }
@@ -492,6 +554,14 @@ impl GitBackend for GixBackend {
         // locally for this remote.
         let creds = self.resolve_credentials(creds, remote)?;
         let mut con = r.connect(Direction::Fetch)?;
+        // Android: reqwest's rustls platform-verifier cannot run inside a
+        // Tauri app (no Gradle/JNI bridge), so give the transport options that
+        // build the HTTP client from the on-device PEM trust store instead.
+        // Without this every HTTPS fetch dies in the TLS handshake.
+        #[cfg(target_os = "android")]
+        con.set_transport_options(
+            android_tls::options().context("prepare Android HTTP transport options")?,
+        );
         match creds {
             Some(c) => {
                 let account = gix::sec::identity::Account {
