@@ -29,9 +29,11 @@ use std::time::{Duration, Instant};
 
 use tauri::State;
 use tauri::ipc::Channel;
+use vault_core::vault::Vault;
 
 use super::agent::{AgentProvider, ClaudeLine, parse_claude_line, parse_provider, resolve_binary};
 use super::blocking;
+use super::open_vault;
 use crate::error::AppError;
 
 /// Total wall-clock budget for one inline text run.
@@ -105,6 +107,14 @@ pub struct AiTextDto {
 pub struct AiTextOptionsDto {
     /// Optional note context (selection, note body) fenced off as data.
     pub context: Option<String>,
+}
+
+/// Options for retrieval Q&A.
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiAskOptionsDto {
+    /// Max excerpts retrieved from the vault (default 8, clamped 1..=16).
+    pub limit: Option<usize>,
 }
 
 /// The one active inline run, so `ai_stop` can cancel it.
@@ -213,6 +223,153 @@ pub async fn ai_stop(state: State<'_, AiState>) -> Result<(), AppError> {
         let _ = child.kill();
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval Q&A (ask your notes)
+// ---------------------------------------------------------------------------
+
+/// The instruction for retrieval Q&A. The excerpts are fenced as data by
+/// `compose_prompt`; the citation contract makes answers traceable.
+pub const ASK_INSTRUCTION: &str = "Answer the question using ONLY the note excerpts below. \
+Cite every claim inline as [note-path:line] pointing at the excerpt it came from. \
+If the excerpts do not contain the answer, say so plainly instead of guessing. \
+Reply with ONLY the answer — no preamble, no restating of the question.";
+
+/// The lines around a match, one excerpt, capped in characters.
+pub fn excerpt_of(content: &str, line: usize, radius: usize, cap: usize) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let idx = line.saturating_sub(1); // SearchMatch.line is 1-based
+    let start = idx.saturating_sub(radius);
+    let end = (idx + radius + 1).min(lines.len());
+    let mut text = lines[start..end].join("\n");
+    if text.len() > cap {
+        text = text[..cap].trim_end().to_string() + "…";
+    }
+    text
+}
+
+/// Assemble retrieval excerpts into the fenced data block: one `path:line`
+/// header per excerpt, blank-line separated, capped in total characters.
+pub fn build_ask_context(entries: &[(String, usize, String)], total_cap: usize) -> String {
+    let mut out = String::new();
+    for (path, line, excerpt) in entries {
+        let block = format!("{path}:{line}\n{excerpt}\n\n");
+        if out.len() + block.len() > total_cap {
+            out.push_str("…\n");
+            break;
+        }
+        out.push_str(&block);
+    }
+    out.trim_end().to_string()
+}
+
+/// Retrieve the excerpts for a question: top `limit` search hits, each
+/// expanded to a radius around the match from the note on disk.
+fn ask_entries(
+    vault: &Vault,
+    question: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<(String, usize, String)>> {
+    let hits = vault.search(question, limit)?;
+    let files = vault.fs_files()?;
+    let mut entries = Vec::new();
+    for hit in hits {
+        let Some((_, path)) = files.iter().find(|(p, _)| p == &hit.path) else {
+            continue;
+        };
+        let content = std::fs::read_to_string(path)?;
+        for m in hit.matches {
+            entries.push((
+                hit.path.clone(),
+                m.line,
+                excerpt_of(&content, m.line, 2, 400),
+            ));
+        }
+    }
+    Ok(entries)
+}
+
+/// Ask the vault a question: retrieval via the FTS5 index, excerpts fenced
+/// as data, answer streamed back with [path:line] citations. Same invariants
+/// as `ai_text` — the command never writes anything.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err, skip(on_event, state, options))]
+pub async fn ai_ask(
+    dir: String,
+    provider: String,
+    question: String,
+    options: Option<AiAskOptionsDto>,
+    on_event: Channel<AiEvent>,
+    state: State<'_, AiState>,
+) -> Result<AiTextDto, AppError> {
+    let provider = parse_provider(&provider).ok_or_else(|| {
+        AppError::InvalidInput(format!(
+            "unknown AI provider: {provider} (expected opencode, codex, or claude)"
+        ))
+    })?;
+    if question.trim().is_empty() {
+        return Err(AppError::InvalidInput("question is empty".into()));
+    }
+    let dir_p = PathBuf::from(&dir);
+    if !dir_p.is_dir() {
+        return Err(AppError::InvalidInput(format!("not a directory: {dir}")));
+    }
+    let binary = resolve_binary(provider.binary()).ok_or_else(|| {
+        AppError::InvalidInput(format!(
+            "{} is not on PATH — {}",
+            provider.label(),
+            provider.install_hint()
+        ))
+    })?;
+    let limit = options.and_then(|o| o.limit).unwrap_or(8).clamp(1, 16);
+
+    // Retrieval happens up front (search + read); the model only ever sees
+    // the excerpts as fenced data.
+    let dir_for_entries = dir_p.clone();
+    let question_for_entries = question.trim().to_string();
+    let entries = blocking(move || -> Result<Vec<(String, usize, String)>, AppError> {
+        let vault = open_vault(&dir_for_entries.to_string_lossy())
+            .map_err(|e| AppError::Vault(format!("{e:#}")))?;
+        ask_entries(&vault, &question_for_entries, limit)
+            .map_err(|e| AppError::Vault(format!("{e:#}")))
+    })
+    .await?;
+
+    // One run at a time; construct the registration atomically.
+    let cancel = Arc::new(AtomicBool::new(false));
+    let child = Arc::new(Mutex::new(None::<Child>));
+    {
+        let mut active = state.active.lock().unwrap();
+        if active.is_some() {
+            return Err(AppError::Internal(
+                "an inline AI run is already in progress".into(),
+            ));
+        }
+        *active = Some(Arc::new(ActiveAiRun {
+            cancel: cancel.clone(),
+            child: child.clone(),
+        }));
+    }
+
+    let context = build_ask_context(&entries, 6000);
+    let invocation = AiInvocation {
+        provider,
+        binary,
+        args: build_ai_args(provider, &compose_prompt(ASK_INSTRUCTION, Some(&context))),
+        dir: dir_p,
+    };
+
+    let result = blocking(move || {
+        let emit = move |event| {
+            let _ = on_event.send(event);
+        };
+        run_ai_impl(invocation, cancel, child, AI_TIMEOUT_SECS, emit)
+    })
+    .await;
+
+    *state.active.lock().unwrap() = None;
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -551,5 +708,70 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, AiEvent::Output { stream, .. } if stream == "stderr"))
         );
+    }
+
+    // -- retrieval Q&A ------------------------------------------------------
+
+    #[test]
+    fn ask_instruction_demands_citations() {
+        assert!(ASK_INSTRUCTION.contains("[note-path:line]"));
+        assert!(ASK_INSTRUCTION.contains("ONLY"));
+        assert!(ASK_INSTRUCTION.contains("do not contain the answer"));
+    }
+
+    #[test]
+    fn excerpt_of_wraps_the_match_with_context() {
+        let content = "l1\nl2\nl3\nl4\nl5";
+        assert_eq!(excerpt_of(content, 3, 1, 400), "l2\nl3\nl4");
+        assert_eq!(excerpt_of(content, 1, 2, 400), "l1\nl2\nl3");
+        assert_eq!(excerpt_of(content, 5, 2, 400), "l3\nl4\nl5");
+    }
+
+    #[test]
+    fn excerpt_of_caps_long_excerpts() {
+        let content = "x".repeat(1000);
+        let text = excerpt_of(&content, 1, 2, 100);
+        assert!(text.chars().count() <= 101, "{text}");
+        assert!(text.ends_with('…'));
+    }
+
+    #[test]
+    fn build_ask_context_formats_entries_and_caps_total() {
+        let entries = vec![
+            ("notes/a.md".to_string(), 3, "alpha line".to_string()),
+            ("notes/b.md".to_string(), 7, "beta line".to_string()),
+        ];
+        let ctx = build_ask_context(&entries, 6000);
+        assert!(ctx.contains("notes/a.md:3\nalpha line"), "{ctx}");
+        assert!(ctx.contains("notes/b.md:7\nbeta line"), "{ctx}");
+
+        let capped = build_ask_context(&entries, 40);
+        assert!(capped.len() <= 42, "{}", capped.len());
+        assert!(capped.ends_with('…'));
+    }
+
+    #[test]
+    fn ask_entries_retrieves_excerpts_from_a_real_vault() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = Vault::create(&tmp.path().join("v"), None).unwrap();
+        vault
+            .write_note(
+                "notes/gtd.md",
+                "# GTD\n\nCapture everything in one trusted system.\nWeekly review keeps it current.\n",
+            )
+            .unwrap();
+        vault
+            .write_note("notes/cooking.md", "# Cooking\n\nPasta needs salt.\n")
+            .unwrap();
+
+        let entries = ask_entries(&vault, "trusted system", 8).unwrap();
+        assert!(!entries.is_empty());
+        let (path, line, excerpt) = &entries[0];
+        assert_eq!(path, "notes/gtd.md");
+        assert_eq!(*line, 3, "SearchMatch.line is 1-based");
+        assert!(excerpt.contains("Capture everything"), "{excerpt}");
+
+        let none = ask_entries(&vault, "quantumchromodynamics", 8).unwrap();
+        assert!(none.is_empty());
     }
 }
