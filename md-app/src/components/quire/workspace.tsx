@@ -7,11 +7,13 @@ import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
 import { useAiNote } from "@/hooks/useAiNote";
 import { useAiAsk } from "@/hooks/useAiAsk";
-import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
+import { useFolderSummary } from "@/hooks/useFolderSummary";
+import { type SidePanel, type ViewMode, fileName, parentOf, relTime, wordCount } from "@/lib/vault";
 import type { BrokenLink } from "@/types";
 import { AgentPanel } from "./agent-panel";
 import { AiNoteModal } from "./ai-note-modal";
 import { AiAskModal } from "./ai-ask-modal";
+import { FolderSummaryModal } from "./FolderSummaryModal";
 import { CommandPalette, type PaletteCommand } from "./command-palette";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
@@ -100,6 +102,8 @@ export function Workspace({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [aiNoteOpen, setAiNoteOpen] = useState(false);
   const [aiAskOpen, setAiAskOpen] = useState(false);
+  // Folder targeted by "Summarize with AI"; non-null opens the preview modal.
+  const [summaryFolder, setSummaryFolder] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
@@ -203,6 +207,24 @@ export function Workspace({
       openNote(path);
     },
   });
+
+  // Folder summary: aggregates the visible notes under one folder (the backend
+  // already dropped .quireignore matches), previews the result, and writes the
+  // note only on Accept — through the normal write path so git sees it.
+  const folderSummary = useFolderSummary({
+    dir: vault.dir,
+    files,
+    onWrite: async (path, content) => {
+      await writeNote(path, content);
+      await vault.refresh();
+      setSummaryFolder(null);
+      openNote(path);
+    },
+  });
+  const summarizeFolder = (folder: string) => {
+    setSummaryFolder(folder);
+    void folderSummary.summarize(folder);
+  };
   const showDiff = (path: string) => {
     flush();
     setRevision(null);
@@ -426,6 +448,11 @@ export function Workspace({
       label: "AI: Ask your notes",
       run: () => setAiAskOpen(true),
     },
+    {
+      id: "ai-summary",
+      label: "AI: Summarize folder…",
+      run: () => summarizeFolder(active ? parentOf(active) : ""),
+    },
     { id: "sync", label: "Sync now", run: () => void syncNow() },
     { id: "update", label: "Check for updates", run: () => void onCheckUpdates() },
     { id: "pull", label: "Git: Pull (take remote)", run: () => void gitAction("take-remote") },
@@ -480,6 +507,7 @@ export function Workspace({
           onMove={(from, toFolder) => void moveNote(from, toFolder)}
           onDelete={setDeleteTarget}
           onReveal={(path) => void revealNote(path)}
+          onSummarizeFolder={summarizeFolder}
         />
       )}
       {panel === "search" && <SearchPanel onOpen={openNote} search={vault.search} />}
@@ -651,6 +679,26 @@ export function Workspace({
           onDismiss={aiNote.dismiss}
           onClose={() => {
             if (aiNote.phase.kind !== "running") setAiNoteOpen(false);
+          }}
+        />
+      )}
+
+      {summaryFolder !== null && folderSummary.phase.kind !== "idle" && (
+        <FolderSummaryModal
+          phase={folderSummary.phase}
+          providerLabel={folderSummary.provider}
+          onAccept={(content) => void folderSummary.accept(content)}
+          onStop={() => void folderSummary.stop()}
+          onRegenerate={() => void folderSummary.summarize(summaryFolder)}
+          onDismiss={() => {
+            folderSummary.dismiss();
+            setSummaryFolder(null);
+          }}
+          onClose={() => {
+            if (folderSummary.phase.kind !== "running") {
+              folderSummary.dismiss();
+              setSummaryFolder(null);
+            }
           }}
         />
       )}
