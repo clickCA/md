@@ -68,6 +68,10 @@ pub fn build_ai_args(provider: AgentProvider, prompt: &str) -> Vec<String> {
             "-p".into(),
             "--output-format".into(),
             "stream-json".into(),
+            // --verbose is required by `-p --output-format stream-json`
+            // (without it the CLI exits with an error before running);
+            // same fact pinned for the agent panel's argv (see agent.rs).
+            "--verbose".into(),
             "--include-partial-messages".into(),
         ],
         AgentProvider::Opencode => vec!["run".into()],
@@ -379,6 +383,9 @@ mod tests {
                 "-p",
                 "--output-format",
                 "stream-json",
+                // Required by -p --output-format stream-json on current
+                // CLIs; without it the process exits before running.
+                "--verbose",
                 "--include-partial-messages",
                 "rewrite this",
             ]
