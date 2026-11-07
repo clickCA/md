@@ -3,7 +3,7 @@ import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import { invoke } from "@tauri-apps/api/core";
 import type { VaultFile } from "@/lib/vault";
-import { MarkdownPreview } from "./note-preview";
+import { MarkdownPreview } from "./NotePreview";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 

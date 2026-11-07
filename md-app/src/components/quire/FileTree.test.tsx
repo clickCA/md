@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import type { VaultFile } from "@/lib/vault";
-import { FileTree } from "./file-tree";
+import { FileTree } from "./FileTree";
 
 const files: VaultFile[] = [
   { path: "Welcome.md", content: "# Welcome\n", committed: "# Welcome\n" },

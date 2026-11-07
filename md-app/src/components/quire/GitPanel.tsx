@@ -14,7 +14,7 @@ import {
 import type { Branches, CommitInfo, HistoryEntry, Journal, Remotes } from "@/types";
 import { type VaultFile, eventLabel, fileName, relTime, statusOf } from "@/lib/vault";
 import { cn } from "@/lib/utils";
-import { PanelHeader } from "./panel-header";
+import { PanelHeader } from "./PanelHeader";
 
 export type GitPanelProps = {
   name: string;

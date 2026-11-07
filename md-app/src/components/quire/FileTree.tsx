@@ -10,7 +10,7 @@ import {
   statusOf,
 } from "@/lib/vault";
 import { cn } from "@/lib/utils";
-import { PanelHeader } from "./panel-header";
+import { PanelHeader } from "./PanelHeader";
 
 const DRAG_TYPE = "application/x-quire-path";
 const ROOT = "\u0000root";

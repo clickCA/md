@@ -65,7 +65,7 @@ plain files; syncing is any standard git remote; conflicts become conflict-copie
   commit; explain *why* in the body when it isn't obvious.
 - Never commit: keystores/signing material (`*.jks`, `keystore.properties`),
   generated Android project (`src-tauri/gen/android`), or personal note content
-  (`md-app/src/components/quire/vault-corpus.generated.ts` — it's gitignored;
+  (`md-app/src/components/quire/vaultCorpus.generated.ts` — it's gitignored;
   keep it that way).
 
 ## Versioning & releases (read `docs/RELEASING.md` before shipping)

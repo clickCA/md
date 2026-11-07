@@ -20,8 +20,8 @@ import {
   resolveImage,
 } from "@/lib/images";
 import { fileName, type VaultFile } from "@/lib/vault";
-import { ImageViewer } from "./image-viewer";
-import { INLINE_TITLE_CLASS } from "./prose-classes";
+import { ImageViewer } from "./ImageViewer";
+import { INLINE_TITLE_CLASS } from "./proseClasses";
 
 type Props = {
   file: VaultFile;

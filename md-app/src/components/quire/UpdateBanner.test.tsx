@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { UpdateBanner } from "./update-banner";
+import { UpdateBanner } from "./UpdateBanner";
 
 /** The banner only reads fields off the update — a structural stand-in is
     enough to drive it without a live updater plugin. */

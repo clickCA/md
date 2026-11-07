@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import type { AiAskPhase } from "@/hooks/useAiAsk";
-import { AiAskModal } from "./ai-ask-modal";
+import { AiAskModal } from "./AiAskModal";
 
 const files = [{ path: "notes/gtd.md" }, { path: "notes/inbox.md" }];
 

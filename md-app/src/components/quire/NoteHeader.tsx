@@ -10,7 +10,7 @@ import {
   Type,
 } from "lucide-react";
 import type { ViewMode } from "@/lib/vault";
-import { IconButton } from "./sidebar";
+import { IconButton } from "./Sidebar";
 
 type Props = {
   path: string | null;

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import type { BrokenLink } from "@/types";
-import { LinksPanel } from "./links-panel";
+import { LinksPanel } from "./LinksPanel";
 
 const rows: BrokenLink[] = [
   {

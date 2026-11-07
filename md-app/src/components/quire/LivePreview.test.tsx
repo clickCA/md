@@ -5,8 +5,8 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import type { VaultFile } from "@/lib/vault";
-import { mdLivePreview, type LivePreviewOptions } from "./live-preview";
-import { MarkdownEditor } from "./note-editor";
+import { mdLivePreview, type LivePreviewOptions } from "./livePreview";
+import { MarkdownEditor } from "./NoteEditor";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -28,7 +28,7 @@ const PNG_B64 =
 
 function mount(doc: string, options: LivePreviewOptions = {}) {
   const view = new EditorView({
-    // Same parser config as note-editor.tsx: markdown() defaults to plain
+    // Same parser config as NoteEditor.tsx: markdown() defaults to plain
     // CommonMark — without the GFM base, task markers are not parsed.
     state: EditorState.create({
       doc,

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Hash, Link2, Network } from "lucide-react";
 import { type VaultFile, backlinks, fileName, headings, relatedNotes } from "@/lib/vault";
 import { cn } from "@/lib/utils";
-import { PanelHeader } from "./panel-header";
+import { PanelHeader } from "./PanelHeader";
 
 type Props = {
   file: VaultFile;

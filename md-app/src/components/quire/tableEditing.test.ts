@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { tableAt, tableKeymap } from "./table-editing";
+import { tableAt, tableKeymap } from "./tableEditing";
 
 function mount(source: string): EditorView {
   return new EditorView({

@@ -38,12 +38,12 @@ import {
   planApply,
   type AiAction,
 } from "@/lib/ai-selection";
-import { AiSuggestionCard, type AiPhase, type AiPhaseActive } from "./ai-suggestion";
+import { AiSuggestionCard, type AiPhase, type AiPhaseActive } from "./AiSuggestion";
 import { extractImages, type ImageRef, imageFiles, saveImage } from "@/lib/images";
-import { ImageViewer } from "./image-viewer";
-import { mdLivePreview } from "./live-preview";
-import { INLINE_TITLE_CLASS } from "./prose-classes";
-import { tableKeymap } from "./table-editing";
+import { ImageViewer } from "./ImageViewer";
+import { mdLivePreview } from "./livePreview";
+import { INLINE_TITLE_CLASS } from "./proseClasses";
+import { tableKeymap } from "./tableEditing";
 
 export type EditorHandle = { jumpTo: (line: number) => void };
 
@@ -196,7 +196,7 @@ function makeTheme(dark: boolean) {
         backgroundColor: "color-mix(in oklab, var(--primary) 45%, transparent)",
       },
 
-      /* ── inline markdown preview (live-preview.ts decorations) ────────── */
+      /* ── inline markdown preview (livePreview.ts decorations) ────────── */
       ".cm-md-strong": { fontWeight: "700", color: "var(--foreground)" },
       ".cm-md-em": { fontStyle: "italic" },
       ".cm-md-strike": { textDecoration: "line-through", color: "var(--muted-foreground)" },
@@ -217,7 +217,7 @@ function makeTheme(dark: boolean) {
         textUnderlineOffset: "2px",
         textDecorationColor: "color-mix(in oklab, var(--primary) 40%, transparent)",
       },
-      /* Same look as read-mode links (note-preview.tsx LINK_CLASS). */
+      /* Same look as read-mode links (NotePreview.tsx LINK_CLASS). */
       ".cm-md-wikilink": {
         color: "var(--primary)",
         textDecoration: "underline",
@@ -656,7 +656,7 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
       {/* Full-width host: CodeMirror owns the scroller (virtual scrolling
           requires it), so centering must live INSIDE .cm-content — a centered
           wrapper here would dock the scrollbar to the text column instead of
-          the editor pane's right edge. Mirrors note-preview.tsx's structure. */}
+          the editor pane's right edge. Mirrors NotePreview.tsx's structure. */}
       <div ref={hostRef} className="h-full" />
       {viewer && (
         <ImageViewer
