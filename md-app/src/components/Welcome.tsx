@@ -37,12 +37,12 @@ export function Welcome({
   onListVaults,
 }: Props) {
   return (
-    <div className="relative grid h-dvh place-items-center">
+    <div className="relative grid flex-1 place-items-center">
       <button
         type="button"
         onClick={onToggleTheme}
         aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-        className="absolute top-5 right-6 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        className="absolute top-[max(1.25rem,env(safe-area-inset-top))] right-6 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
       >
         {dark ? <Sun className="size-4" aria-hidden /> : <Moon className="size-4" aria-hidden />}
       </button>

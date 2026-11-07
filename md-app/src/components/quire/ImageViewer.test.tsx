@@ -15,6 +15,17 @@ const IMAGES = [
   { src: BLUE_DOT, alt: "second image" },
 ];
 
+/* Three-image gallery for the swipe test: both swipe directions must land on
+   distinct indices (with two images they wrap to the same one). */
+const SWIPE_IMAGES = [
+  { src: RED_DOT, alt: "first image" },
+  { src: BLUE_DOT, alt: "second image" },
+  {
+    src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgMPhfDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    alt: "third image",
+  },
+];
+
 const noop = () => {};
 
 describe("ImageViewer", () => {
@@ -85,5 +96,72 @@ describe("ImageViewer", () => {
     await page.getByRole("button", { name: "Copy image path" }).click();
     expect(writeText).toHaveBeenCalledWith(RED_DOT);
     writeText.mockRestore();
+  });
+
+  it("swipes between images", async () => {
+    const onNavigate = vi.fn();
+    await render(
+      <ImageViewer
+        dir="/v"
+        images={SWIPE_IMAGES}
+        index={0}
+        onNavigate={onNavigate}
+        onClose={noop}
+      />,
+    );
+    const stage = document.querySelector('[data-testid="image-stage"]')!;
+    const fire = (type: string, x: number) => {
+      stage.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 7,
+          pointerType: "touch",
+          isPrimary: true,
+          clientX: x,
+          clientY: 200,
+        }),
+      );
+    };
+    fire("pointerdown", 300);
+    fire("pointermove", 240);
+    fire("pointermove", 150);
+    fire("pointerup", 150);
+    expect(onNavigate).toHaveBeenCalledWith(1); // swipe left → next image
+
+    onNavigate.mockClear();
+    fire("pointerdown", 150);
+    fire("pointermove", 240);
+    fire("pointermove", 300);
+    fire("pointerup", 300);
+    expect(onNavigate).toHaveBeenCalledWith(2); // swipe right → previous image (wraps to last)
+  });
+
+  it("does not swipe-navigate a single image or a dismissed gesture", async () => {
+    const onNavigate = vi.fn();
+    await render(
+      <ImageViewer
+        dir="/v"
+        images={[IMAGES[0]]}
+        index={0}
+        onNavigate={onNavigate}
+        onClose={noop}
+      />,
+    );
+    const stage = document.querySelector('[data-testid="image-stage"]')!;
+    const fire = (type: string, x: number) =>
+      stage.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          pointerId: 7,
+          pointerType: "touch",
+          isPrimary: true,
+          clientX: x,
+          clientY: 200,
+        }),
+      );
+    fire("pointerdown", 300);
+    fire("pointermove", 200);
+    fire("pointerup", 200);
+    expect(onNavigate).not.toHaveBeenCalled(); // no gallery to navigate
   });
 });

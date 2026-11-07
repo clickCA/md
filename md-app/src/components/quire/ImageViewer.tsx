@@ -60,6 +60,7 @@ type Gesture = {
   mode: "none" | "pan" | "pinch";
   startX: number;
   startY: number;
+  startT: number;
   baseX: number;
   baseY: number;
   baseDist: number;
@@ -75,6 +76,7 @@ const idleGesture = (): Gesture => ({
   mode: "none",
   startX: 0,
   startY: 0,
+  startT: 0,
   baseX: 0,
   baseY: 0,
   baseDist: 1,
@@ -225,6 +227,16 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     return () => ro.disconnect();
   }, [recomputeFit]);
 
+  /* ── gallery navigation ─────────────────────────────────────────────── */
+
+  const go = useCallback(
+    (delta: number) => {
+      if (count < 2) return;
+      onNavigate((safeIndex + delta + count) % count);
+    },
+    [count, safeIndex, onNavigate],
+  );
+
   /* ── pan + pinch (pointer events) ──────────────────────────────────── */
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -234,13 +246,18 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     const stage = stageRef.current;
     if (!stage) return;
     suppressClick.current = false;
-    stage.setPointerCapture(e.pointerId);
+    try {
+      stage.setPointerCapture(e.pointerId);
+    } catch {
+      // synthetic pointer (tests) — tracking still works via the events map
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const g = gesture.current;
     if (pointers.current.size === 1) {
       g.mode = "pan";
       g.startX = e.clientX;
       g.startY = e.clientY;
+      g.startT = performance.now();
       g.baseX = viewRef.current.x;
       g.baseY = viewRef.current.y;
       g.moved = false;
@@ -289,7 +306,18 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
   const endPointer = (e: ReactPointerEvent<HTMLDivElement>) => {
     pointers.current.delete(e.pointerId);
     if (pointers.current.size === 0) {
-      if (gesture.current.moved) suppressClick.current = true;
+      const g = gesture.current;
+      if (g.moved) suppressClick.current = true;
+      // Horizontal flick at fit zoom navigates the gallery (touch swipe).
+      if (g.mode === "pan" && count > 1 && viewRef.current.scale <= fit + 1e-3) {
+        const dx = e.clientX - g.startX;
+        const dy = e.clientY - g.startY;
+        const dt = performance.now() - g.startT;
+        if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 600) {
+          suppressClick.current = true;
+          go(dx < 0 ? 1 : -1);
+        }
+      }
       gesture.current = idleGesture();
       setDragging(false);
     } else if (pointers.current.size === 1 && gesture.current.mode === "pinch") {
@@ -298,6 +326,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
       g.mode = "pan";
       g.startX = p.x;
       g.startY = p.y;
+      g.startT = performance.now();
       g.baseX = viewRef.current.x;
       g.baseY = viewRef.current.y;
       g.moved = true;
@@ -324,15 +353,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
     }
   };
 
-  /* ── gallery navigation + keyboard ─────────────────────────────────── */
-
-  const go = useCallback(
-    (delta: number) => {
-      if (count < 2) return;
-      onNavigate((safeIndex + delta + count) % count);
-    },
-    [count, safeIndex, onNavigate],
-  );
+  /* ── gallery keyboard ──────────────────────────────────────────────── */
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -416,7 +437,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
       role="dialog"
       aria-modal="true"
       aria-label="Image viewer"
-      className="fixed inset-0 z-50 flex select-none flex-col bg-black/85 text-white backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex select-none flex-col bg-black/85 pt-[env(safe-area-inset-top)] text-white backdrop-blur-[2px]"
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-baseline gap-3">
@@ -446,6 +467,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
 
       <div
         ref={stageRef}
+        data-testid="image-stage"
         className={cn(
           "relative min-h-0 flex-1 touch-none overflow-hidden",
           dragging ? "cursor-grabbing" : "cursor-default",
@@ -499,7 +521,7 @@ export function ImageViewer({ dir, images, index, onNavigate, onClose }: Props) 
         )}
       </div>
 
-      <footer className="shrink-0 pb-3">
+      <footer className="shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-center gap-1 py-2">
           <ToolButton label="Zoom out (-)" onClick={() => zoomBy(1 / ZOOM_STEP)}>
             <ZoomOut className="size-4" aria-hidden />

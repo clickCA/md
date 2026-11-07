@@ -21,6 +21,7 @@ import {
 } from "@/lib/images";
 import { fileName, type VaultFile } from "@/lib/vault";
 import { ImageViewer } from "./ImageViewer";
+import { useBackClose } from "@/hooks/useBackClose";
 import { INLINE_TITLE_CLASS } from "./proseClasses";
 
 type Props = {
@@ -174,6 +175,7 @@ function taskLabel(lines: string[], line: number) {
 
 export function MarkdownPreview({ file, dir, onOpenLink, onToggleTask }: Props) {
   const [viewer, setViewer] = useState<{ images: ImageRef[]; index: number } | null>(null);
+  useBackClose(viewer !== null, () => setViewer(null));
   const gallery = useMemo(() => extractImages(file.content), [file.content]);
   const openImage = (src: string) => {
     const index = gallery.findIndex((im) => im.src === src);

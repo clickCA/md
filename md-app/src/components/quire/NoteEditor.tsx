@@ -27,6 +27,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Sparkles } from "lucide-react";
 import { fileName, type VaultFile } from "@/lib/vault";
 import { TYPOGRAPHY_EVENT } from "@/lib/typography";
+import { useBackClose } from "@/hooks/useBackClose";
 import { errorMessage } from "@/lib/ipc";
 import { pickAiProvider, runAiText, stopAi } from "@/lib/ai";
 import { readAgentProvider, type AgentProviderInfo } from "@/lib/agent";
@@ -346,6 +347,7 @@ export const MarkdownEditor = forwardRef<EditorHandle, Props>(function MarkdownE
   // Full-screen image viewer, opened by clicking a rendered image. The
   // gallery mirrors the note's image order, read from the live buffer.
   const [viewer, setViewer] = useState<{ images: ImageRef[]; index: number } | null>(null);
+  useBackClose(viewer !== null, () => setViewer(null));
   const openImage = (src: string) => {
     const content = viewRef.current?.state.doc.toString() ?? file.content;
     const gallery = extractImages(content);
