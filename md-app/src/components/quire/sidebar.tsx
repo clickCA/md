@@ -10,6 +10,7 @@ import {
   ChevronsUpDown,
   FolderClosed,
   GitBranch,
+  MessageCircleQuestion,
   Moon,
   PanelLeftClose,
   RefreshCw,
@@ -69,6 +70,7 @@ export interface SidebarProps {
 const tabs: { id: SidePanel; label: string; icon: typeof Search }[] = [
   { id: "files", label: "Files", icon: FolderClosed },
   { id: "search", label: "Search", icon: Search },
+  { id: "ask", label: "Ask", icon: MessageCircleQuestion },
   { id: "links", label: "Links", icon: Unlink },
   { id: "git", label: "Sync", icon: GitBranch },
 ];

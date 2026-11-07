@@ -21,6 +21,7 @@ import { MarkdownPreview } from "./note-preview";
 import { NoteHeader } from "./note-header";
 import { RevisionViewer } from "./revision-viewer";
 import { SearchPanel } from "./search-panel";
+import { AskPanel } from "./ask-panel";
 import { Sidebar, type SidebarProps } from "./sidebar";
 import Modal from "../ui/Modal";
 
@@ -471,6 +472,7 @@ export function Workspace({
         />
       )}
       {panel === "search" && <SearchPanel onOpen={openNote} search={vault.search} />}
+      {panel === "ask" && <AskPanel dir={vault.dir} search={vault.search} onOpen={openNote} />}
       {panel === "links" && (
         <LinksPanel
           report={linksReport}

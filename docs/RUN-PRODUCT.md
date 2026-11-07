@@ -81,6 +81,7 @@ pnpm --filter md-app tauri build    # installer/bundle under md-app/src-tauri/ta
 | Edit the same note on another clone, sync both          | Non-overlapping edits merge; overlapping edits keep both (`.conflict-<ts>.md`) |
 | Right-click in the editor, preview or any input         | Cut · Copy · Paste · Select All — the same menu on macOS, Windows and Linux; `Cmd`/`Ctrl+C` `X` `V` work in the editor everywhere |
 | Open the same folder in any other editor                | Plain Markdown + plain Git — everything keeps working; Quire's search picks up the change on its next query |
+| Sidebar → **Ask** tab                                   | Ask your notes: retrieval finds the matching notes, the inline AI answers with clickable citations — answering only from notes that exist in the vault |
 | `Ctrl Shift A` (or the ✨ button)                        | AI agent panel: pick opencode / Claude Code / codex, prompt it, watch it edit your vault live, open what it changed, sync normally |
 | Select text in the editor → **AI**                      | The preset menu — Rewrite · Improve writing · Summarize · Continue writing — proposes a diff right where you are: Accept applies it, Discard leaves the note byte-identical; a note edited mid-request refuses the suggestion as stale |
 | Vault settings (gear)                                   | Remote URL, auto-sync toggle, theme switch                          |
