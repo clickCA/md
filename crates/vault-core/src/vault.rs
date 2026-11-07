@@ -26,7 +26,7 @@ impl Vault {
         fs::create_dir_all(root)?;
         let mut git = GixBackend::init(root)?;
         if let Some(url) = remote {
-            git.set_remote(url)?;
+            git.set_remote("origin", url)?;
         }
         let db = Db::open(root)?;
         Ok(Self {
@@ -429,5 +429,101 @@ impl Vault {
             }
         }
         Ok(())
+    }
+}
+
+/// One configured remote and how the current branch relates to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteState {
+    pub name: String,
+    pub url: String,
+    /// The push target ("primary") — plain `sync` fetches from and pushes
+    /// here; other remotes are fetch/merge sources.
+    pub primary: bool,
+    /// in-sync | ahead | behind | diverged | unrelated | empty |
+    /// not-published | remote-only
+    pub relation: String,
+}
+
+impl Vault {
+    /// Validate a remote URL. `file://`, plain absolute paths (tests, local
+    /// mirrors) and http(s) are fine; SSH is rejected — the vault model is
+    /// HTTPS-only because mobile has no ssh-agent.
+    pub fn validate_remote_url(url: &str) -> Result<()> {
+        if url.is_empty() {
+            anyhow::bail!("remote url is empty");
+        }
+        if url.starts_with("ssh://") || url.starts_with("git@") {
+            anyhow::bail!("ssh remotes are not supported — use an https url");
+        }
+        if !url.contains("://") && !url.starts_with('/') {
+            anyhow::bail!("remote url must include a scheme (https://)");
+        }
+        Ok(())
+    }
+
+    /// All remotes with their per-remote relation to the current branch.
+    pub fn remotes(&self) -> Result<Vec<RemoteState>> {
+        let primary = self.git.primary_remote()?;
+        let branch = self.git.current_branch()?;
+        let head = self.git.head_oid()?;
+        let mut out = Vec::new();
+        for (name, url) in self.git.list_remotes()? {
+            let tip = self.git.remote_branch_oid_at(&name, &branch)?;
+            let relation = match (&head, &tip) {
+                (None, None) => "empty".to_string(),
+                (Some(_), None) => "not-published".to_string(),
+                (None, Some(_)) => "remote-only".to_string(),
+                (Some(h), Some(t)) if h == t => "in-sync".to_string(),
+                (Some(h), Some(t)) => match self.git.merge_base(h, t)? {
+                    Some(ref mb) if mb == t => "ahead".to_string(),
+                    Some(ref mb) if mb == h => "behind".to_string(),
+                    Some(_) => "diverged".to_string(),
+                    None => "unrelated".to_string(),
+                },
+            };
+            out.push(RemoteState {
+                primary: name == primary,
+                relation,
+                name,
+                url,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Add a remote (HTTPS/file only — SSH rejected; see
+    /// [`Self::validate_remote_url`]). Never switches the push target.
+    pub fn add_remote(&mut self, name: &str, url: &str) -> Result<()> {
+        Self::validate_branch_name(name)?;
+        Self::validate_remote_url(url)?;
+        if self.git.remote_url_of(name)?.is_some() {
+            anyhow::bail!("remote already exists: {name}");
+        }
+        self.git.add_remote(name, url)
+    }
+
+    /// Remove a remote; if it was the push target, the designation falls
+    /// back to the first remaining remote.
+    pub fn remove_remote(&mut self, name: &str) -> Result<()> {
+        if self.git.remote_url_of(name)?.is_none() {
+            anyhow::bail!("no such remote: {name}");
+        }
+        self.git.remove_remote(name)
+    }
+
+    /// Rename a remote; the push-target designation follows the rename.
+    pub fn rename_remote(&mut self, old: &str, new: &str) -> Result<()> {
+        Self::validate_branch_name(new)?;
+        if self.git.remote_url_of(old)?.is_none() {
+            anyhow::bail!("no such remote: {old}");
+        }
+        self.git.rename_remote(old, new)
+    }
+
+    /// Designate the push target ("primary"): plain `sync` fetches from and
+    /// pushes here; other remotes are fetch/merge sources.
+    pub fn set_primary_remote(&mut self, name: &str) -> Result<()> {
+        self.git.set_primary_remote(name)
     }
 }

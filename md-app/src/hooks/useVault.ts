@@ -8,6 +8,7 @@ import type {
   CommitInfo,
   GitState,
   HistoryEntry,
+  Remotes,
   Status,
   SyncResult,
 } from "../types";
@@ -454,6 +455,69 @@ export function useVault(dir: string) {
     }
   }, [dir]);
 
+  /** All configured remotes with per-remote relations. */
+  const loadRemotes = useCallback(async (): Promise<Remotes> => {
+    try {
+      return await invoke<Remotes>("git_remotes", { dir });
+    } catch {
+      return { primary: "origin", remotes: [] };
+    }
+  }, [dir]);
+
+  const remoteAdd = useCallback(
+    async (name: string, url: string) => {
+      await run("add remote", () => invoke("git_remote_add", { dir, name, url }));
+    },
+    [dir, run],
+  );
+
+  const remoteRemove = useCallback(
+    async (name: string) => {
+      await run("remove remote", () => invoke("git_remote_remove", { dir, name }));
+    },
+    [dir, run],
+  );
+
+  const remoteRename = useCallback(
+    async (from: string, to: string) => {
+      await run("rename remote", () => invoke("git_remote_rename", { dir, from, to }));
+    },
+    [dir, run],
+  );
+
+  const remoteSetPrimary = useCallback(
+    async (name: string) => {
+      await run("set primary remote", async () => {
+        await invoke("git_remote_set_primary", { dir, name });
+        await refresh();
+      });
+    },
+    [dir, run, refresh],
+  );
+
+  /** Sync against a specific remote: fetch + merge from it, push the
+      result to the primary push target. */
+  const syncFrom = useCallback(
+    async (remote: string) => {
+      setSync("syncing");
+      await run(`sync from ${remote}`, async () => {
+        try {
+          await invoke("vault_sync_from", { dir, remote, credentials: creds });
+          setLastSyncError(null);
+        } catch (e) {
+          if (isAuthError(e)) {
+            setAuthOpen(true);
+            return;
+          }
+          throw e;
+        }
+        await refresh();
+      });
+      setSync("idle");
+    },
+    [dir, run, refresh, creds],
+  );
+
   /** Local branches of the vault. */
   const loadBranches = useCallback(async (): Promise<Branches> => {
     try {
@@ -526,6 +590,12 @@ export function useVault(dir: string) {
     restoreNote,
     restoreSnapshot,
     brokenLinks,
+    loadRemotes,
+    remoteAdd,
+    remoteRemove,
+    remoteRename,
+    remoteSetPrimary,
+    syncFrom,
     loadBranches,
     createBranch,
     switchBranch,

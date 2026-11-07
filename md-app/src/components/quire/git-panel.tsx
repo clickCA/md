@@ -11,7 +11,7 @@ import {
   ShieldAlert,
   Upload,
 } from "lucide-react";
-import type { Branches, CommitInfo, HistoryEntry, Journal } from "@/types";
+import type { Branches, CommitInfo, HistoryEntry, Journal, Remotes } from "@/types";
 import { type VaultFile, eventLabel, fileName, relTime, statusOf } from "@/lib/vault";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
@@ -48,6 +48,13 @@ export type GitPanelProps = {
   onSync: () => void;
   onGitAction: (action: string) => void;
   onInit: () => void;
+  loadRemotes: () => Promise<Remotes>;
+  onRemoteAdd: (name: string, url: string) => Promise<void>;
+  onRemoteRemove: (name: string) => void;
+  onRemoteRename: (from: string, to: string) => Promise<void>;
+  onRemoteSetPrimary: (name: string) => void;
+  /** Fetch + merge from a remote; the result lands on the primary. */
+  onSyncFrom: (name: string) => void;
 };
 
 const short = (oid: string | null) => (oid ? oid.slice(0, 7) : "—");
@@ -78,6 +85,12 @@ export function GitPanel({
   onSync,
   onGitAction,
   onInit,
+  loadRemotes,
+  onRemoteAdd,
+  onRemoteRemove,
+  onRemoteRename,
+  onRemoteSetPrimary,
+  onSyncFrom,
 }: GitPanelProps) {
   const [confirmForce, setConfirmForce] = useState(false);
   const busy = sync !== "idle";
@@ -176,6 +189,17 @@ export function GitPanel({
             No remote yet. Add one in vault settings to sync across devices.
           </p>
         )}
+
+        <RemotesSection
+          key={head ?? "none"}
+          loadRemotes={loadRemotes}
+          onRemoteAdd={onRemoteAdd}
+          onRemoteRemove={onRemoteRemove}
+          onRemoteRename={onRemoteRename}
+          onRemoteSetPrimary={onRemoteSetPrimary}
+          onSyncFrom={onSyncFrom}
+          disabled={busy}
+        />
 
         <button
           type="button"
@@ -765,6 +789,260 @@ function HistorySection({
             )}
           </div>
         ))}
+    </section>
+  );
+}
+
+/** Multiple remotes (plan P2): per-remote relation readout, add/remove/
+    rename, one primary push target, and explicit sync-from for secondary
+    remotes. Loading is event-driven (open / mutate) — no effects. */
+function RemotesSection({
+  loadRemotes,
+  onRemoteAdd,
+  onRemoteRemove,
+  onRemoteRename,
+  onRemoteSetPrimary,
+  onSyncFrom,
+  disabled,
+}: {
+  loadRemotes: () => Promise<Remotes>;
+  onRemoteAdd: (name: string, url: string) => Promise<void>;
+  onRemoteRemove: (name: string) => void;
+  onRemoteRename: (from: string, to: string) => Promise<void>;
+  onRemoteSetPrimary: (name: string) => void;
+  onSyncFrom: (name: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [remotes, setRemotes] = useState<Remotes | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameTo, setRenameTo] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setError(null);
+    try {
+      setRemotes(await loadRemotes());
+    } catch {
+      setError("Could not load remotes.");
+    }
+  };
+
+  const add = async () => {
+    if (!name.trim() || !url.trim()) return;
+    try {
+      await onRemoteAdd(name.trim(), url.trim());
+      setName("");
+      setUrl("");
+      setAdding(false);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add the remote.");
+    }
+  };
+
+  const rename = async (from: string) => {
+    if (!renameTo.trim()) return;
+    try {
+      await onRemoteRename(from, renameTo.trim());
+      setRenaming(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not rename the remote.");
+    }
+  };
+
+  const remove = (r: string) => {
+    if (confirmRemove !== r) {
+      setConfirmRemove(r);
+      return;
+    }
+    setConfirmRemove(null);
+    onRemoteRemove(r);
+    void load();
+  };
+
+  return (
+    <section>
+      <div className="flex h-6 items-center justify-between px-2">
+        <button
+          type="button"
+          onClick={() => {
+            const next = !open;
+            setOpen(next);
+            if (next && !remotes) void load();
+          }}
+          aria-expanded={open}
+          className="flex h-5 items-center gap-1.5 rounded px-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase hover:bg-accent hover:text-foreground"
+        >
+          Remotes
+          {remotes && <span className="font-mono normal-case">{remotes.remotes.length}</span>}
+        </button>
+        <IconButton
+          label={adding ? "Cancel new remote" : "Add remote"}
+          onClick={() => setAdding((a) => !a)}
+          disabled={disabled}
+        >
+          <span className="font-mono text-[13px] leading-none" aria-hidden>
+            {adding ? "\u00d7" : "+"}
+          </span>
+        </IconButton>
+      </div>
+
+      {(open || adding) && (
+        <div className="px-1 pb-1">
+          {adding && (
+            <div className="mb-1 flex flex-col gap-1 px-1">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="name (e.g. backup)"
+                aria-label="New remote name"
+                className="h-6 w-full rounded-md border border-border bg-background px-2 font-mono text-[11px] outline-none focus:border-primary"
+              />
+              <input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void add();
+                }}
+                placeholder="https://…"
+                aria-label="New remote url"
+                className="h-6 w-full rounded-md border border-border bg-background px-2 font-mono text-[11px] outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => void add()}
+                disabled={disabled || !name.trim() || !url.trim()}
+                className="flex h-6 items-center justify-center rounded-md bg-primary text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+              >
+                Add remote
+              </button>
+            </div>
+          )}
+          {error && (
+            <p className="px-1 py-0.5 text-[11px] text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          {open &&
+            (remotes === null ? (
+              <p className="px-1 py-0.5 text-[11px] text-muted-foreground" role="status">
+                {error ? null : "Loading\u2026"}
+              </p>
+            ) : (
+              <ul>
+                {remotes.remotes.map((r) =>
+                  renaming === r.name ? (
+                    <li key={r.name} className="flex items-center gap-1 px-1 py-0.5">
+                      <input
+                        value={renameTo}
+                        onChange={(e) => setRenameTo(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void rename(r.name);
+                        }}
+                        aria-label={`Rename remote ${r.name}`}
+                        defaultValue={r.name}
+                        className="h-6 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono text-[11px] outline-none focus:border-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void rename(r.name)}
+                        disabled={disabled || !renameTo.trim()}
+                        className="h-6 rounded-md bg-primary px-2 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+                      >
+                        Save
+                      </button>
+                    </li>
+                  ) : (
+                    <li
+                      key={r.name}
+                      className="flex h-7 items-center gap-1.5 rounded-md px-1 hover:bg-sidebar-accent"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => r.primary || onRemoteSetPrimary(r.name)}
+                        disabled={disabled || r.primary}
+                        title={
+                          r.primary
+                            ? "push target \u2014 plain sync fetches from and pushes here"
+                            : "make the push target"
+                        }
+                        aria-label={`Make ${r.name} the primary remote`}
+                        className={cn(
+                          "shrink-0 font-mono text-[12px]",
+                          r.primary
+                            ? "text-primary"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {r.primary ? "\u2605" : "\u2606"}
+                      </button>
+                      <span className="min-w-0 flex-1 truncate text-[12px] leading-5">
+                        {r.name}
+                        <span
+                          className={cn(
+                            "ml-1.5 font-mono text-[10px]",
+                            r.relation === "in-sync"
+                              ? "text-muted-foreground"
+                              : r.relation === "diverged"
+                                ? "text-destructive"
+                                : "text-modified",
+                          )}
+                        >
+                          {r.relation}
+                        </span>
+                      </span>
+                      {!r.primary && (
+                        <button
+                          type="button"
+                          onClick={() => onSyncFrom(r.name)}
+                          disabled={disabled}
+                          aria-label={`Sync from ${r.name}`}
+                          title="fetch + merge from this remote; the result lands on the push target"
+                          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                        >
+                          <ArrowDown className="size-3.5" aria-hidden />
+                        </button>
+                      )}
+                      <IconButton
+                        label={`Rename ${r.name}`}
+                        onClick={() => {
+                          setRenaming(r.name);
+                          setRenameTo(r.name);
+                        }}
+                        disabled={disabled}
+                      >
+                        <PenLine className="size-3" aria-hidden />
+                      </IconButton>
+                      <IconButton
+                        label={
+                          confirmRemove === r.name ? `Really remove ${r.name}?` : `Remove ${r.name}`
+                        }
+                        onClick={() => remove(r.name)}
+                        disabled={disabled}
+                      >
+                        <span
+                          className={cn(
+                            "font-mono text-[12px] leading-none",
+                            confirmRemove === r.name && "text-destructive",
+                          )}
+                          aria-hidden
+                        >
+                          {confirmRemove === r.name ? "?" : "\u00d7"}
+                        </span>
+                      </IconButton>
+                    </li>
+                  ),
+                )}
+              </ul>
+            ))}
+        </div>
+      )}
     </section>
   );
 }

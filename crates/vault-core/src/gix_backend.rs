@@ -100,12 +100,16 @@ fn write_node(repo: &gix::Repository, map: &BTreeMap<String, Node>) -> Result<gi
 }
 
 impl GixBackend {
-    /// Resolve credentials for the `origin` remote: explicit credentials win,
-    /// otherwise fall back to git's own credential helpers for https remotes —
-    /// the same helpers `git fetch`/`git push` use — so a token already stored
-    /// locally (e.g. in the libsecret keychain) is reused instead of prompting
-    /// on every sync. Non-https remotes (`file://`, ssh, …) are left untouched.
-    fn resolve_credentials(&self, creds: Option<&Credentials>) -> Result<Option<Credentials>> {
+    /// Resolve credentials for `remote`: explicit credentials win, otherwise
+    /// fall back to git's own credential helpers for https remotes — the same
+    /// helpers `git fetch`/`git push` use — so a token already stored locally
+    /// (e.g. in the libsecret keychain) is reused instead of prompting on
+    /// every sync. Non-https remotes (`file://`, ssh, …) are left untouched.
+    fn resolve_credentials(
+        &self,
+        creds: Option<&Credentials>,
+        remote: &str,
+    ) -> Result<Option<Credentials>> {
         if let Some(c) = creds {
             return Ok(Some(c.clone()));
         }
@@ -114,7 +118,7 @@ impl GixBackend {
         };
         let Some(url) = self
             .repo
-            .find_remote("origin")?
+            .find_remote(remote)?
             .url(Direction::Fetch)
             .map(|u| u.to_string())
         else {
@@ -128,6 +132,7 @@ impl GixBackend {
 
     fn push_refspec(
         &self,
+        remote: &str,
         expected_local: &Oid,
         creds: Option<&Credentials>,
         force: bool,
@@ -138,7 +143,7 @@ impl GixBackend {
             .ok_or_else(|| anyhow!("push requires a worktree repository"))?
             .to_path_buf();
         let repo = git2::Repository::open(&workdir)?;
-        let mut remote = repo.find_remote("origin")?;
+        let mut r = repo.find_remote(remote)?;
         let mut cbs = git2::RemoteCallbacks::new();
         let rejected = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
         let rejected_c = rejected.clone();
@@ -153,7 +158,7 @@ impl GixBackend {
         // push` would do. The resolved creds also feed the verification fetch
         // below, which previously always failed on `None` even after a
         // successful push.
-        let creds = self.resolve_credentials(creds)?;
+        let creds = self.resolve_credentials(creds, remote)?;
         let creds_v = creds.clone();
         cbs.credentials(move |_url, _username, _allowed| {
             if let Some(c) = &creds_v {
@@ -166,17 +171,16 @@ impl GixBackend {
         let branch = self.current_branch()?;
         let force_char = if force { "+" } else { "" };
         let refspec = format!("{force_char}refs/heads/{branch}:refs/heads/{branch}");
-        remote
-            .push(&[refspec], Some(&mut opts))
+        r.push(&[refspec], Some(&mut opts))
             .context("libgit2 push")?;
         let rejected = rejected.borrow();
         if !rejected.is_empty() {
             return Err(anyhow!("push rejected: {}", rejected.join("; ")));
         }
-        remote.disconnect()?;
-        drop(remote);
+        r.disconnect()?;
+        drop(r);
         drop(repo);
-        let actual = self.fetch(creds.as_ref())?;
+        let actual = self.fetch_from(remote, creds.as_ref())?;
         if actual.as_deref() != Some(expected_local.as_str()) {
             return Err(anyhow!(
                 "remote tip diverged after push: expected {expected_local}, got {:?}",
@@ -199,6 +203,17 @@ impl GixBackend {
 }
 
 impl GixBackend {
+    /// Reopen the repository after raw config mutations.
+    fn reopen(&mut self, open_path: Option<std::path::PathBuf>) -> Result<()> {
+        let open_path = open_path.or_else(|| self.repo.workdir().map(|p| p.to_path_buf()));
+        let path = open_path.unwrap_or_else(|| self.repo.git_dir().to_path_buf());
+        self.repo = gix::open_opts(path, gix::open::Options::isolated())?;
+        self.repo
+            .committer_or_set_generic_fallback()
+            .context("reopen repository")?;
+        Ok(())
+    }
+
     fn prepare(repo: gix::Repository) -> Result<Self> {
         let mut repo = repo;
         repo.committer_or_set_generic_fallback()
@@ -223,39 +238,150 @@ impl GitBackend for GixBackend {
         Self::prepare(repo)
     }
 
-    fn set_remote(&mut self, url: &str) -> Result<()> {
+    fn set_remote(&mut self, name: &str, url: &str) -> Result<()> {
+        let open_path = self.repo.workdir().map(|p| p.to_path_buf());
         let config_path = self.repo.git_dir().join("config");
-        let open_path = self
-            .repo
-            .workdir()
-            .unwrap_or_else(|| self.repo.git_dir())
-            .to_path_buf();
         let mut file = self.repo.config_file_mut(&config_path)?;
         file.set_raw_value_by(
             "remote",
-            Some("origin".as_bytes().as_bstr()),
+            Some(name.as_bytes().as_bstr()),
             "url",
             url.as_bytes().as_bstr(),
         )?;
         file.set_raw_value_by(
             "remote",
-            Some("origin".as_bytes().as_bstr()),
+            Some(name.as_bytes().as_bstr()),
             "fetch",
-            "+refs/heads/*:refs/remotes/origin/*".as_bytes().as_bstr(),
+            format!("+refs/heads/*:refs/remotes/{name}/*")
+                .as_bytes()
+                .as_bstr(),
         )?;
         file.commit()?;
-        self.repo = gix::open_opts(open_path, gix::open::Options::isolated())?;
-        self.repo
-            .committer_or_set_generic_fallback()
-            .context("set committer fallback")?;
+        self.reopen(open_path)?;
         Ok(())
     }
 
     fn remote_url(&self) -> Result<Option<String>> {
-        match self.repo.try_find_remote("origin") {
+        let primary = self.primary_remote()?;
+        self.remote_url_of(&primary)
+    }
+
+    fn remote_url_of(&self, name: &str) -> Result<Option<String>> {
+        match self.repo.try_find_remote(name) {
             Some(Ok(remote)) => Ok(remote.url(Direction::Fetch).map(|u| u.to_string())),
             _ => Ok(None),
         }
+    }
+
+    fn list_remotes(&self) -> Result<Vec<(String, String)>> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        let mut out = Vec::new();
+        for entry in repo.remotes()?.iter() {
+            // git2 yields Result<Option<&str>> per entry — skip oddities.
+            let Some(name) = entry.ok().flatten() else {
+                continue;
+            };
+            if let Ok(r) = repo.find_remote(name) {
+                let url = r.url().unwrap_or_default().to_string();
+                out.push((name.to_string(), url));
+            }
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
+    fn add_remote(&mut self, name: &str, url: &str) -> Result<()> {
+        let open_path = self.repo.workdir().map(|p| p.to_path_buf());
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        repo.remote(name, url).context("add remote")?;
+        drop(repo);
+        self.reopen(open_path)?;
+        Ok(())
+    }
+
+    fn remove_remote(&mut self, name: &str) -> Result<()> {
+        let open_path = self.repo.workdir().map(|p| p.to_path_buf());
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        repo.remote_delete(name).context("remove remote")?;
+        drop(repo);
+        self.reopen(open_path)?;
+        // A removed remote can't stay primary.
+        if self.primary_remote()? == name {
+            self.set_primary_remote("origin")?;
+        }
+        Ok(())
+    }
+
+    fn rename_remote(&mut self, old: &str, new: &str) -> Result<()> {
+        let open_path = self.repo.workdir().map(|p| p.to_path_buf());
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        repo.remote_rename(old, new).context("rename remote")?;
+        drop(repo);
+        self.reopen(open_path)?;
+        // Keep the primary designation attached through the rename.
+        if self.primary_remote()? == old {
+            self.set_primary_remote(new)?;
+        }
+        Ok(())
+    }
+
+    fn primary_remote(&self) -> Result<String> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        let stored = repo
+            .config()
+            .and_then(|c| c.get_string("quire.primaryRemote"))
+            .ok();
+        drop(repo);
+        let primary = stored.unwrap_or_else(|| "origin".to_string());
+        // A primary that no longer exists falls back to the first remote.
+        let remotes = self.list_remotes()?;
+        if remotes.iter().any(|(name, _)| name == &primary) {
+            return Ok(primary);
+        }
+        Ok(remotes
+            .first()
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| "origin".to_string()))
+    }
+
+    fn set_primary_remote(&mut self, name: &str) -> Result<()> {
+        if !self.list_remotes()?.iter().any(|(n, _)| n == name) {
+            anyhow::bail!("no such remote: {name}");
+        }
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| anyhow!("requires a worktree repository"))?
+            .to_path_buf();
+        let repo = git2::Repository::open(&workdir)?;
+        let mut cfg = repo.config()?;
+        cfg.set_str("quire.primaryRemote", name)?;
+        Ok(())
     }
 
     fn current_branch(&self) -> Result<String> {
@@ -320,13 +446,18 @@ impl GitBackend for GixBackend {
     }
 
     fn remote_branch_oid(&self, branch: &str) -> Result<Option<Oid>> {
-        // `refs/remotes/origin/HEAD` is ambiguous: in a normal clone it is a
-        // symref to the default branch, but the refspec `+refs/heads/*` also
+        let primary = self.primary_remote()?;
+        self.remote_branch_oid_at(&primary, branch)
+    }
+
+    fn remote_branch_oid_at(&self, remote: &str, branch: &str) -> Result<Option<Oid>> {
+        // `refs/remotes/<remote>/HEAD` is ambiguous: in a normal clone it is
+        // a symref to the default branch, but the refspec `+refs/heads/*` also
         // maps a remote branch literally named `HEAD` onto it — shadowing the
         // real tip with a stale oid (seen in the wild). Prefer the explicit
         // branch ref; keep the legacy fallbacks for the default branch.
-        let mut names = vec![format!("refs/remotes/origin/{branch}")];
-        if branch == "main" {
+        let mut names = vec![format!("refs/remotes/{remote}/{branch}")];
+        if remote == "origin" && branch == "main" {
             names.push("refs/remotes/origin/master".into());
             names.push("refs/remotes/origin/HEAD".into());
         }
@@ -349,13 +480,18 @@ impl GitBackend for GixBackend {
     }
 
     fn fetch(&self, creds: Option<&Credentials>) -> Result<Option<Oid>> {
-        let remote = self.repo.find_remote("origin")?;
+        let primary = self.primary_remote()?;
+        self.fetch_from(&primary, creds)
+    }
+
+    fn fetch_from(&self, remote: &str, creds: Option<&Credentials>) -> Result<Option<Oid>> {
+        let r = self.repo.find_remote(remote)?;
         // Without explicit credentials, consult git's own credential helpers
         // (e.g. the libsecret keychain) before giving up — this is what makes
         // sync avoid the credentials dialog when a token is already stored
         // locally for this remote.
-        let creds = self.resolve_credentials(creds)?;
-        let mut con = remote.connect(Direction::Fetch)?;
+        let creds = self.resolve_credentials(creds, remote)?;
+        let mut con = r.connect(Direction::Fetch)?;
         match creds {
             Some(c) => {
                 let account = gix::sec::identity::Account {
@@ -384,15 +520,26 @@ impl GitBackend for GixBackend {
         prep.receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
             .map_err(|e| anyhow!("fetch receive failed: {e}"))?;
         let branch = self.current_branch()?;
-        self.remote_branch_oid(&branch)
+        self.remote_branch_oid_at(remote, &branch)
     }
 
     fn push_current(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
-        self.push_refspec(expected_local, creds, false)
+        let primary = self.primary_remote()?;
+        self.push_refspec(&primary, expected_local, creds, false)
+    }
+
+    fn push_to(
+        &self,
+        remote: &str,
+        expected_local: &Oid,
+        creds: Option<&Credentials>,
+    ) -> Result<()> {
+        self.push_refspec(remote, expected_local, creds, false)
     }
 
     fn force_push_current(&self, expected_local: &Oid, creds: Option<&Credentials>) -> Result<()> {
-        self.push_refspec(expected_local, creds, true)
+        let primary = self.primary_remote()?;
+        self.push_refspec(&primary, expected_local, creds, true)
     }
     fn merge_base(&self, a: &Oid, b: &Oid) -> Result<Option<Oid>> {
         let oid = self
@@ -565,7 +712,7 @@ mod tests {
     fn backend_with_fake_helper(dir: &Path) -> GixBackend {
         let mut backend = GixBackend::init(dir).expect("init backend");
         backend
-            .set_remote("https://github.com/example/repo.git")
+            .set_remote("origin", "https://github.com/example/repo.git")
             .expect("set https remote");
         let helper = fake_helper(dir);
         let config_path = dir.join(".git/config");
@@ -590,7 +737,7 @@ mod tests {
         let backend = backend_with_fake_helper(dir.path());
 
         let creds = backend
-            .resolve_credentials(None)
+            .resolve_credentials(None, "origin")
             .expect("resolve helper credentials")
             .expect("helper must supply credentials");
 
@@ -608,7 +755,7 @@ mod tests {
         };
 
         let creds = backend
-            .resolve_credentials(Some(&supplied))
+            .resolve_credentials(Some(&supplied), "origin")
             .expect("resolve explicit credentials");
 
         assert!(matches!(
@@ -624,12 +771,12 @@ mod tests {
         let remote = tempfile::tempdir().expect("remote tempdir");
         let remote_url = remote.path().join("remote.git");
         backend
-            .set_remote(&remote_url.to_string_lossy())
+            .set_remote("origin", &remote_url.to_string_lossy())
             .expect("set local remote");
 
         assert!(
             backend
-                .resolve_credentials(None)
+                .resolve_credentials(None, "origin")
                 .expect("resolve")
                 .is_none(),
             "non-https remotes must not trigger the credential helper"

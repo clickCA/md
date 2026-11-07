@@ -286,3 +286,111 @@ pub async fn git_branch_switch(dir: String, name: String) -> Result<GitStateDto,
     })
     .await
 }
+
+// --- Multiple remotes ---
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteDto {
+    pub name: String,
+    pub url: String,
+    /// The push target — plain sync fetches from and pushes here.
+    pub primary: bool,
+    /// in-sync | ahead | behind | diverged | unrelated | empty |
+    /// not-published | remote-only
+    pub relation: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotesDto {
+    pub primary: String,
+    pub remotes: Vec<RemoteDto>,
+}
+
+fn remotes_dto(vault: &Vault) -> Result<RemotesDto, AppError> {
+    let all = vault.remotes()?;
+    let primary = all
+        .iter()
+        .find(|r| r.primary)
+        .map(|r| r.name.clone())
+        .unwrap_or_else(|| "origin".to_string());
+    Ok(RemotesDto {
+        primary,
+        remotes: all
+            .into_iter()
+            .map(|r| RemoteDto {
+                name: r.name,
+                url: r.url,
+                primary: r.primary,
+                relation: r.relation,
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_remotes(dir: String) -> Result<RemotesDto, AppError> {
+    super::blocking(move || remotes_dto(&open_vault(&dir)?)).await
+}
+
+/// Add a remote. HTTPS-only for user-facing adds (SSH rejected — mobile
+/// has no ssh-agent); the engine itself also allows file:// mirrors.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_remote_add(
+    dir: String,
+    name: String,
+    url: String,
+) -> Result<RemotesDto, AppError> {
+    super::blocking(move || {
+        let mut vault = open_vault(&dir)?;
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(AppError::InvalidInput(
+                "remote url must be an https url — ssh is not supported".into(),
+            ));
+        }
+        vault.add_remote(&name, &url)?;
+        remotes_dto(&vault)
+    })
+    .await
+}
+
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_remote_remove(dir: String, name: String) -> Result<RemotesDto, AppError> {
+    super::blocking(move || {
+        let mut vault = open_vault(&dir)?;
+        vault.remove_remote(&name)?;
+        remotes_dto(&vault)
+    })
+    .await
+}
+
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_remote_rename(
+    dir: String,
+    from: String,
+    to: String,
+) -> Result<RemotesDto, AppError> {
+    super::blocking(move || {
+        let mut vault = open_vault(&dir)?;
+        vault.rename_remote(&from, &to)?;
+        remotes_dto(&vault)
+    })
+    .await
+}
+
+/// Designate the push target: plain sync fetches from and pushes here.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn git_remote_set_primary(dir: String, name: String) -> Result<RemotesDto, AppError> {
+    super::blocking(move || {
+        let mut vault = open_vault(&dir)?;
+        vault.set_primary_remote(&name)?;
+        remotes_dto(&vault)
+    })
+    .await
+}
