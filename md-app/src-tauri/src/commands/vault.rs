@@ -101,7 +101,7 @@ pub async fn vault_make(dir: String, remote_url: Option<String>) -> Result<Statu
         if p.join(".git").exists() {
             let mut v = Vault::open(&p)?;
             if let Some(url) = remote_url {
-                v.git.set_remote(&url)?;
+                v.git.set_remote("origin", &url)?;
             }
             return status_dto(&v);
         }
@@ -125,6 +125,25 @@ pub async fn vault_sync(dir: String, credentials: Option<CredDto>) -> Result<Syn
         let vault = super::open_vault(&dir)?;
         let creds = credentials.as_ref().map(|c| c.creds());
         let outcome = sync::sync_with(&vault, creds.as_ref())?;
+        Ok(sync_dto(outcome))
+    })
+    .await
+}
+
+/// Sync against a specific remote: fetch + merge FROM it, push the result
+/// to the primary push target. This is how a secondary remote is consumed
+/// without making it the push target.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err, skip(credentials))]
+pub async fn vault_sync_from(
+    dir: String,
+    remote: String,
+    credentials: Option<CredDto>,
+) -> Result<SyncDto, AppError> {
+    blocking(move || {
+        let vault = super::open_vault(&dir)?;
+        let creds = credentials.as_ref().map(|c| c.creds());
+        let outcome = sync::sync_with_remote(&vault, &remote, creds.as_ref())?;
         Ok(sync_dto(outcome))
     })
     .await
@@ -236,7 +255,7 @@ pub async fn vault_clone(
                 _ => {}
             }
             let mut v = existing;
-            v.git.set_remote(&url)?;
+            v.git.set_remote("origin", &url)?;
             let creds = credentials.as_ref().map(CredDto::creds);
             vault_core::sync::clone_with(&v, creds.as_ref())?;
         } else {

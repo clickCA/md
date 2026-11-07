@@ -41,6 +41,7 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 | `vault_make`       | `dir`, `remoteUrl?`           | `Status` — opens or creates the vault, sets remote   |
 | `vault_status`     | `dir`                         | `Status`                                             |
 | `vault_sync`       | `dir`, `credentials?`         | `Sync { action, head?, remote?, conflicts[] }`       |
+| `vault_sync_from`  | `dir`, `remote`, `credentials?` | `Sync` — fetch + merge FROM `remote`, push the result to the primary |
 
 `Status = { root, head?, remoteMain?, pending, conflicts: Conflict[], lastRun: Journal? }`
 `VaultInfo = { name, dir, remoteUrl?, noteCount? }`
@@ -125,6 +126,11 @@ leaves the vault root.
 | `git_branches`  | `dir`                                  | `Branches { current, branches[] }` — local branch names, sorted |
 | `git_branch_create` | `dir`, `name`                      | `Branches` — creates a branch at the current head; never switches |
 | `git_branch_switch` | `dir`, `name`                      | `GitState` — switches the vault to the branch (clean tree required) |
+| `git_remotes`   | `dir`                                  | `Remotes { primary, remotes: Remote[] }` — per-remote relation to the current branch |
+| `git_remote_add` | `dir`, `name`, `url`                  | `Remotes` — adds a remote; user-facing adds are https-only (ssh rejected), the engine also accepts `file://` mirrors |
+| `git_remote_remove` | `dir`, `name`                      | `Remotes` — removes; the primary designation falls back if it was the target |
+| `git_remote_rename` | `dir`, `from`, `to`                | `Remotes` — renames; the primary designation follows |
+| `git_remote_set_primary` | `dir`, `name`                 | `Remotes` — designates the push target |
 
 `relation ∈ no-remote | empty | not-published | remote-only | in-sync | ahead | behind | diverged | unrelated | unknown`
 
@@ -137,7 +143,17 @@ exists only as `origin/<name>` is created locally at its remote tip on switch
 (`git switch` semantics). Branch names are validated (no whitespace, `..`,
 leading `.`, `-` prefix, `.lock` suffix, glob characters).
 
-`action ∈ push | take-remote | force-publish` — explicit, user-triggered operations.
+`action ∈ push | take-remote | force-publish` — explicit, user-triggered
+operations, all against the **primary** remote.
+
+**Multiple remotes:** `Remote = { name, url, primary, relation }` with the
+same relation ladder as `GitState.relation`, computed per remote against the
+current branch. The primary is the push target; `vault_sync` fetches from it
+and pushes to it, and `vault_sync_from` consumes a secondary (fetch + merge
+from it, push the result to the primary) without ever pushing there. The
+designation is device-local (`quire.primaryRemote` in the repo config;
+default `origin`, falling back to the first remote if removed). Remote names
+follow the same rules as branch names; SSH urls are rejected everywhere.
 `credentials = { username, password }` is optional. When omitted on an https
 remote, the engine first consults git's configured credential helpers (e.g. the
 libsecret keychain on Linux) and only surfaces `code: "auth"` if nothing usable

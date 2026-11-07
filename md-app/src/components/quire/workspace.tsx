@@ -513,6 +513,12 @@ export function Workspace({
           diffPath={diffPath}
           onSync={() => void syncNow()}
           onGitAction={(a) => void gitAction(a)}
+          loadRemotes={vault.loadRemotes}
+          onRemoteAdd={vault.remoteAdd}
+          onRemoteRemove={(name) => void vault.remoteRemove(name)}
+          onRemoteRename={vault.remoteRename}
+          onRemoteSetPrimary={(name) => void vault.remoteSetPrimary(name)}
+          onSyncFrom={(name) => void vault.syncFrom(name)}
           onInit={() => void syncNow()}
         />
       )}

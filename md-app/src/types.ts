@@ -98,3 +98,19 @@ export interface BrokenLink {
   /** Original link text (alias side for wikilinks, label for markdown). */
   text: string;
 }
+
+/** One configured remote and how the current branch relates to it. */
+export interface RemoteState {
+  name: string;
+  url: string;
+  /** The push target — plain sync fetches from and pushes here. */
+  primary: boolean;
+  /** in-sync | ahead | behind | diverged | unrelated | empty |
+      not-published | remote-only */
+  relation: string;
+}
+
+export interface Remotes {
+  primary: string;
+  remotes: RemoteState[];
+}

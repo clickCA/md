@@ -51,8 +51,9 @@ pub fn clone_with(
         Ok(outcome) => Ok(outcome),
         Err(e) => {
             let branch = vault.git.current_branch()?;
-            let empty_remote =
-                vault.git.head_oid()?.is_none() && vault.git.remote_branch_oid(&branch)?.is_none();
+            let primary = vault.git.primary_remote()?;
+            let empty_remote = vault.git.head_oid()?.is_none()
+                && vault.git.remote_branch_oid_at(&primary, &branch)?.is_none();
             if empty_remote {
                 return Ok(SyncOutcome {
                     action: "clone (empty remote)".into(),
@@ -70,8 +71,23 @@ pub fn sync_with(
     vault: &Vault,
     creds: Option<&crate::git_backend::Credentials>,
 ) -> Result<SyncOutcome> {
+    let primary = vault.git.primary_remote()?;
+    sync_with_remote(vault, &primary, creds)
+}
+
+/// One sync cycle against a specific remote: fetch + merge FROM it, push
+/// the result to the primary push target. This is how a secondary remote
+/// is consumed without making it the push target.
+pub fn sync_with_remote(
+    vault: &Vault,
+    remote: &str,
+    creds: Option<&crate::git_backend::Credentials>,
+) -> Result<SyncOutcome> {
+    if vault.git.remote_url_of(remote)?.is_none() {
+        return Err(anyhow!("no such remote: {remote}"));
+    }
     let run = vault.db.begin_run()?;
-    let result = sync_inner(vault, run, creds);
+    let result = sync_inner(vault, remote, run, creds);
     match &result {
         Ok(outcome) => {
             let o = if outcome.conflicts.is_empty() {
@@ -92,6 +108,7 @@ pub fn sync_with(
 
 fn sync_inner(
     vault: &Vault,
+    fetch_from: &str,
     run: i64,
     creds: Option<&crate::git_backend::Credentials>,
 ) -> Result<SyncOutcome> {
@@ -108,7 +125,7 @@ fn sync_inner(
     }
 
     vault.db.event(run, "fetching")?;
-    let remote = vault.git.fetch(creds)?;
+    let remote = vault.git.fetch_from(fetch_from, creds)?;
     abort_point("fetching");
 
     let (local, remote) = match (local, remote) {
