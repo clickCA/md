@@ -5,9 +5,11 @@ import type { Vault } from "@/hooks/useVault";
 import type { HistoryEntry } from "@/types";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useAgent } from "@/hooks/useAgent";
+import { useAiNote } from "@/hooks/useAiNote";
 import { type SidePanel, type ViewMode, fileName, relTime, wordCount } from "@/lib/vault";
 import type { BrokenLink } from "@/types";
 import { AgentPanel } from "./agent-panel";
+import { AiNoteModal } from "./ai-note-modal";
 import { CommandPalette, type PaletteCommand } from "./command-palette";
 import { DiffViewer } from "./diff-viewer";
 import { FileTree } from "./file-tree";
@@ -94,6 +96,7 @@ export function Workspace({
   const [mode, setMode] = useState<ViewMode>("edit");
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [aiNoteOpen, setAiNoteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
@@ -182,6 +185,17 @@ export function Workspace({
     open(path);
     setDrawerOpen(false);
   };
+
+  // Create-note-through-AI: the generated note lands via the normal write
+  // path; open it and refresh so the tree shows it right away.
+  const aiNote = useAiNote({
+    dir: vault.dir,
+    onCreated: (path) => {
+      setAiNoteOpen(false);
+      void vault.refresh();
+      openNote(path);
+    },
+  });
   const showDiff = (path: string) => {
     flush();
     setRevision(null);
@@ -395,6 +409,11 @@ export function Workspace({
       hint: "Ctrl Shift A",
       run: () => setAgentOpen((o) => !o),
     },
+    {
+      id: "ai-note",
+      label: "AI: Create a note from a description",
+      run: () => setAiNoteOpen(true),
+    },
     { id: "sync", label: "Sync now", run: () => void syncNow() },
     { id: "update", label: "Check for updates", run: () => void onCheckUpdates() },
     { id: "pull", label: "Git: Pull (take remote)", run: () => void gitAction("take-remote") },
@@ -602,6 +621,19 @@ export function Workspace({
           {agentOpen && <AgentPanel {...agentState} />}
         </div>
       </main>
+
+      {aiNoteOpen && (
+        <AiNoteModal
+          phase={aiNote.phase}
+          providerLabel={aiNote.provider}
+          onCreate={(d) => void aiNote.create(d)}
+          onStop={() => void aiNote.stop()}
+          onDismiss={aiNote.dismiss}
+          onClose={() => {
+            if (aiNote.phase.kind !== "running") setAiNoteOpen(false);
+          }}
+        />
+      )}
 
       {paletteOpen && (
         <CommandPalette
