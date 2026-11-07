@@ -61,6 +61,23 @@ vault-core (crates/)           Rust engine: knows nothing about Tauri
 5. Frontend shared helpers (`src/lib/*`) stay pure TypeScript — no Tauri `invoke` calls
    except `lib/ipc.ts`-style adapters and components that own their data loading.
 
+### Android shell behavior (md-app/src)
+
+- **Edge-to-edge:** `MainActivity` calls `enableEdgeToEdge()` and the web page uses
+  `viewport-fit=cover`, so the app draws behind the Android status bar; every
+  surface that mounts at the screen top (app shell in `App.tsx`, drawer, command
+  palette, image viewer’s header/footer, welcome screen) compensates with
+  `env(safe-area-inset-top)` / `-bottom` (0 on desktop). New chrome must do the same —
+  don’t rely on a global body padding, the shell is `h-dvh` + `overflow-hidden`.
+- **System back gesture:** the React app has no router; Tauri’s generated
+  `WryActivity` routes back presses to webview history. Overlays (drawer, palette,
+  diffs, dialogs, image viewer) each hold one history entry while open via
+  `hooks/useBackClose.ts`, so back closes the topmost overlay instead of leaving the
+  app. Any new full-screen overlay should call it.
+- **Mobile drawer gestures:** edge-swipe-in opens the drawer, horizontal swipe-left
+  closes it (`Workspace.tsx`, read-only touch listeners — they never `preventDefault`,
+  so they must not break scrolling or taps).
+
 ## Build, quality gates, and CI
 
 | Concern            | Command (repo root) | Notes                                        |

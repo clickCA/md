@@ -1,4 +1,4 @@
-// Regenerates src/components/quire/vault-corpus.generated.ts from a real
+// Regenerates src/components/quire/vaultCorpus.generated.ts from a real
 // Obsidian vault, so the live-preview sweep test runs against actual notes.
 //   node scripts/make-vault-corpus.mjs [vault-dir]
 // The generated file is gitignored — it contains personal note content.
@@ -6,7 +6,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const VAULT = process.argv[2] ?? `${process.env.HOME}/Desktop/obsidian-vault`;
-const OUT = new URL("../src/components/quire/vault-corpus.generated.ts", import.meta.url);
+const OUT = new URL("../src/components/quire/vaultCorpus.generated.ts", import.meta.url);
 const SKIP_DIRS = new Set([".obsidian", ".trash", "node_modules", ".git"]);
 const MAX_FILES = 120;
 const MAX_CHARS = 2500;
