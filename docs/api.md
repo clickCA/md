@@ -40,10 +40,11 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 | `vault_probe`      | `dir`                         | `Probe { exists, isVault, remoteUrl?, noteCount? }`  |
 | `vault_make`       | `dir`, `remoteUrl?`           | `Status` — opens or creates the vault, sets remote   |
 | `vault_status`     | `dir`                         | `Status`                                             |
+| `vault_set_sync_excluded` | `dir`, `on`            | `Status` — toggles selective sync (exclusions vs full sync) for this device |
 | `vault_sync`       | `dir`, `credentials?`         | `Sync { action, head?, remote?, conflicts[] }`       |
 | `vault_sync_from`  | `dir`, `remote`, `credentials?` | `Sync` — fetch + merge FROM `remote`, push the result to the primary |
 
-`Status = { root, head?, remoteMain?, pending, conflicts: Conflict[], lastRun: Journal? }`
+`Status = { root, head?, remoteMain?, pending, syncExcluded, conflicts: Conflict[], lastRun: Journal? }` — `pending` reflects the sync view (excluded edits never surface)
 `VaultInfo = { name, dir, remoteUrl?, noteCount? }`
 
 - `Conflict = { path, conflictCopy, winner, at }`
@@ -85,11 +86,19 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 
 A `.quireignore` file at the vault root hides notes from the app's *own*
 surfaces — file tree (`note_list`, `note_snapshot`), search (`search_notes`),
-and everything built on them (AI retrieval, future AI actions). It never
-touches git: excluded notes remain on disk, tracked, synced, and in history
-(`note_statuses` and the source-control panel keep the full git view). The
-rules file itself is a plain vault file, so it syncs with the vault and rules
-follow across devices.
+and everything built on them (AI retrieval, future AI actions). Git's own
+semantics are untouched: excluded notes remain on disk and anything already
+committed stays in history (`note_statuses`, history, and the source-control
+panel keep the full git view). The rules file itself is a plain vault file,
+so it syncs with the vault and rules follow across devices.
+
+**Selective sync** (device-local, on by default): excluded paths are never
+staged, committed, pushed, merged, or checked out by the sync machinery —
+edits under an excluded path create no commits, conflicts, or sync events,
+and the working copy is never touched by remote churn under that path.
+`vault_set_sync_excluded` (and the source-control panel toggle) forces a
+**full sync** instead: the on-disk state of excluded files flows through the
+normal commit path, so toggling loses nothing in either direction.
 
 Syntax follows `.gitignore` habits, scoped down:
 
@@ -102,9 +111,10 @@ Syntax follows `.gitignore` habits, scoped down:
   matches zero or more segments (`**/temp`, `a/**/b`)
 - a rule matching a directory hides everything below it
 
-The engine applies exclusions in `vault-core/src/exclude.rs`; sync
-(`fs_tree` / `commit_pending` / `materialize`) deliberately uses the
-unfiltered file list.
+The engine applies exclusions in `vault-core/src/exclude.rs`; the sync
+machinery consumes the same list through `Vault::filter_sync_tree` /
+`sync_tree` / `materialize` (toggle-aware), and `vault_status`'s `pending`
+flag reflects the sync view so excluded edits never surface as pending.
 
 ## Files & images
 

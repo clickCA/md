@@ -53,6 +53,10 @@ impl Db {
                 mtime INTEGER NOT NULL,
                 oid TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS search_state (
                 path TEXT PRIMARY KEY,
                 mtime INTEGER NOT NULL,
@@ -162,6 +166,24 @@ impl Db {
             .prepare("SELECT at, state FROM journal_events WHERE run_id = ?1 ORDER BY id")?;
         let rows = stmt.query_map([run], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Device-local per-vault settings (the exclusion *list* syncs with the
+    /// vault; how this device treats it during sync stays local).
+    pub fn get_setting(&self, key: &str) -> Option<String> {
+        self.conn
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| {
+                r.get::<_, String>(0)
+            })
+            .ok()
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )?;
+        Ok(())
     }
 
     /// Current search-index signature: every indexed path with the mtime and

@@ -117,6 +117,21 @@ pub async fn vault_status(dir: String) -> Result<StatusDto, AppError> {
     blocking(move || status_dto(&super::open_vault(&dir)?)).await
 }
 
+/// Toggle selective sync for this device: off (default) keeps
+/// `.quireignore` matches out of commits, pushes, merges, and checkouts;
+/// on forces a full sync — the on-disk state of excluded files flows
+/// through the normal commit path, so nothing is lost either way.
+#[tauri::command]
+#[tracing::instrument(level = "debug", err)]
+pub async fn vault_set_sync_excluded(dir: String, on: bool) -> Result<StatusDto, AppError> {
+    blocking(move || {
+        let vault = super::open_vault(&dir)?;
+        vault.set_sync_excluded_files(on)?;
+        status_dto(&vault)
+    })
+    .await
+}
+
 /// One idempotent sync cycle: commit pending → fetch → merge → push.
 #[tauri::command]
 #[tracing::instrument(level = "debug", err, skip(credentials))]

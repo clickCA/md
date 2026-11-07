@@ -21,6 +21,7 @@ impl std::fmt::Display for AuthRequired {
 
 impl std::error::Error for AuthRequired {}
 
+#[derive(Debug, Clone)]
 pub struct TreeEntry {
     pub oid: Oid,
     pub is_dir: bool,
