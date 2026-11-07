@@ -78,6 +78,7 @@ pub fn run() {
             commands::notes::note_move,
             commands::notes::folder_create,
             commands::notes::search_notes,
+            commands::notes::broken_links,
             commands::fsx::save_image,
             commands::fsx::read_file_bytes,
             commands::fsx::vault_path,
