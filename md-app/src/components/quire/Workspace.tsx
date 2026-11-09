@@ -660,14 +660,14 @@ export function Workspace({
           <button
             type="button"
             aria-label="Close sidebar"
-            className="absolute inset-0 bg-background/70 backdrop-blur-[2px]"
+            className="quire-fade-in absolute inset-0 bg-background/70 backdrop-blur-[2px]"
             onClick={() => setDrawerOpen(false)}
           />
           <Sidebar
             {...sidebarProps}
             onCollapse={() => setDrawerOpen(false)}
             resizable={false}
-            className="relative w-[85%] max-w-xs pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl"
+            className="quire-drawer-slide-in relative w-[85%] max-w-xs pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl"
           >
             {sidebarContent}
           </Sidebar>
