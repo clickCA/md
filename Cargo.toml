@@ -19,6 +19,10 @@ gix = { version = "0.90", features = [
     "blocking-http-transport-reqwest-rust-tls",
 ] }
 imara-diff = "0.2"
+# Direct dep so vault-core can downcast rejected-credential errors to
+# gix_transport::client::AuthenticationRequired (gix does not re-export
+# gix-transport). No features needed — the type is always available.
+gix-transport = { version = "0.62", default-features = false }
 # `https` is required for `git2::Remote::push` over HTTPS: without it libgit2 is
 # built with no TLS backend at all and every push fails with "there is no TLS
 # stream available" (push is the one network op gix cannot do — gitoxide has no
