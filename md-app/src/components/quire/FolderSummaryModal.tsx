@@ -32,7 +32,7 @@ export function FolderSummaryModal({
   const busy = phase.kind === "running";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-background/60 px-4 pt-[12vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-background/60 px-4 pt-[max(12vh,env(safe-area-inset-top))] backdrop-blur-[2px]"
       onMouseDown={busy ? undefined : onClose}
     >
       <div

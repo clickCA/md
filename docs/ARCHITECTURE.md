@@ -74,22 +74,38 @@ vault-core (crates/)           Rust engine: knows nothing about Tauri
   diffs, dialogs, image viewer) each hold one history entry while open via
   `hooks/useBackClose.ts`, so back closes the topmost overlay instead of leaving the
   app. Any new full-screen overlay should call it.
-- **Mobile drawer gestures:** edge-swipe-in opens the drawer, horizontal swipe-left
-  closes it (`Workspace.tsx`, read-only touch listeners — they never `preventDefault`,
-  so they must not break scrolling or taps).
+- **Mobile drawer gestures + motion:** `MobileDrawer.tsx` owns both. Opening and
+  closing are damped-spring slides (`lib/spring.ts`, closed-form oscillator;
+  ~2% overshoot on open, near-critical close) with the drawer mounted only while
+  it is visible — a closing drawer animates out, then its content unmounts. A
+  pull on the panel body drags it 1:1 with the finger (rubber-banded past both
+  edges) and snaps by release velocity, then position; a pull started within the
+  left 28px screen edge reveals a closed drawer live. Vertical scroll inside the
+  drawer stays native (`touch-action: pan-y`) — the panel only grabs clearly
+  horizontal pulls, and the edge pull hands back to the page unless it proves
+  horizontal intent, so neither breaks scrolling or taps. `Workspace.tsx` just
+  feeds `open` / `onOpenChange`; the gesture details live in the component.
+- **Overscroll:** `html`/`body` set `overscroll-behavior: none` — the system's
+  pull-to-refresh / edge stretch would fight the drawer's edge pull on the locked
+  shell. Inner scrollers (editor, panels, dialogs) keep native behavior.
+- **Desktop-only surfaces:** the AI agent side panel (`AgentPanel.tsx`) is
+  `lg:flex` — its header toggle is hidden below `lg` (the Android AI entry points
+  are the AI-note / AI-ask / folder-summary modals via the command palette), and
+  so is the outline inspector toggle. Don't render a toggle for a surface that
+  can't appear.
 
 ## Build, quality gates, and CI
 
-| Concern            | Command (repo root) | Notes                                        |
-| ------------------ | ------------------- | -------------------------------------------- |
-| Frontend dev       | `pnpm dev`          | Vite (md-app)                                |
-| Typecheck          | `pnpm typecheck`    | `tsc --noEmit`                               |
-| Lint / format      | `pnpm lint` / `pnpm format` | ESLint flat config + Prettier        |
-| Frontend tests     | `pnpm test`         | Vitest in Chromium (Playwright)              |
-| Frontend build     | `pnpm build`        | `tsc && vite build`                          |
-| Rust format/lint   | `pnpm check:rust`   | `cargo fmt --check` + `clippy -D warnings`   |
-| Rust tests         | `pnpm test:rust`    | workspace tests incl. crash-recovery suite   |
-| Everything         | `pnpm verify`       | all of the above                             |
+| Concern          | Command (repo root)         | Notes                                      |
+| ---------------- | --------------------------- | ------------------------------------------ |
+| Frontend dev     | `pnpm dev`                  | Vite (md-app)                              |
+| Typecheck        | `pnpm typecheck`            | `tsc --noEmit`                             |
+| Lint / format    | `pnpm lint` / `pnpm format` | ESLint flat config + Prettier              |
+| Frontend tests   | `pnpm test`                 | Vitest in Chromium (Playwright)            |
+| Frontend build   | `pnpm build`                | `tsc && vite build`                        |
+| Rust format/lint | `pnpm check:rust`           | `cargo fmt --check` + `clippy -D warnings` |
+| Rust tests       | `pnpm test:rust`            | workspace tests incl. crash-recovery suite |
+| Everything       | `pnpm verify`               | all of the above                           |
 
 CI runs the same gates on `ubuntu-latest` (`.github/workflows/ci.yml`). Tauri's Linux
 system prerequisites (GTK/WebKit) are needed to compile `md-app/src-tauri` locally on

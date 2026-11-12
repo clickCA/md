@@ -17,7 +17,7 @@ export function UpdateBanner({ update, installing, error, onInstall, onDismiss }
     <div
       role="status"
       aria-live="polite"
-      className="fixed right-4 bottom-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-border bg-panel/95 p-3 shadow-xl backdrop-blur-sm"
+      className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-border bg-panel/95 p-3 shadow-xl backdrop-blur-sm"
     >
       <div className="flex items-start gap-2.5">
         <span

@@ -690,7 +690,18 @@ impl GitBackend for GixBackend {
         }
         let prep = con
             .prepare_fetch(gix::progress::Discard, Default::default())
-            .map_err(|e| anyhow!("prepare_fetch failed: {e}"))?;
+            .map_err(|e| {
+                // Credentials explicitly provided but rejected (wrong/revoked
+                // token) arrive here classified as unauthenticated — surface
+                // the typed marker so the command layer maps it to
+                // AppError::Auth and the UI shows the sign-in dialog instead
+                // of a generic clone failure.
+                if e.is_unauthenticated() {
+                    anyhow!(crate::git_backend::AuthRequired)
+                } else {
+                    anyhow!("prepare_fetch failed: {e}")
+                }
+            })?;
         prep.receive(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
             .map_err(|e| anyhow!("fetch receive failed: {e}"))?;
         let branch = self.current_branch()?;

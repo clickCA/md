@@ -69,13 +69,18 @@ export function NoteHeader({
         <IconButton label="New note (Ctrl N)" onClick={onNewNote}>
           <SquarePen className="size-4" aria-hidden />
         </IconButton>
-        <IconButton
-          label={agentOpen ? "Hide AI agent (Ctrl Shift A)" : "AI agent (Ctrl Shift A)"}
-          pressed={agentOpen}
-          onClick={onToggleAgent}
-        >
-          <Sparkles className="size-4" aria-hidden />
-        </IconButton>
+        {/* The agent panel is desktop-only (lg:flex aside); on mobile the AI
+            entry points are the AI modals via the command palette. Rendering
+            the toggle here would be a dead button. */}
+        <span className="hidden lg:contents">
+          <IconButton
+            label={agentOpen ? "Hide AI agent (Ctrl Shift A)" : "AI agent (Ctrl Shift A)"}
+            pressed={agentOpen}
+            onClick={onToggleAgent}
+          >
+            <Sparkles className="size-4" aria-hidden />
+          </IconButton>
+        </span>
         <IconButton label="Search notes (Ctrl K)" onClick={onOpenPalette}>
           <Search className="size-4" aria-hidden />
         </IconButton>
