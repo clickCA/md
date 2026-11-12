@@ -220,7 +220,8 @@ export function Sidebar({
       aria-label="Vault"
       style={resizable ? { width: `${width}px` } : undefined}
       className={cn(
-        "relative flex w-64 shrink-0 flex-col border-r border-border bg-sidebar",
+        "relative flex shrink-0 flex-col border-r border-border bg-sidebar",
+        resizable ? "w-64" : "h-full w-full",
         className,
       )}
     >
