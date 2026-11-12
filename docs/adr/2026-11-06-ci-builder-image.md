@@ -54,6 +54,11 @@ That block was copy-pasted into `ci.yml` (Rust job) and `release.yml`
    opt-out).
 4. **`make docker-ci`** builds the image locally for verification without
    touching CI.
+5. **Rust toolchain baked into the image** (added 2026-11-12): rustup installs
+   the exact channel `rust-toolchain.toml` pins (1.99.1) with rustfmt + clippy,
+   under `/usr/local/{rustup,cargo}`. The workflows' `dtolnay/rust-toolchain`
+   steps stay and become fast no-ops; a channel bump touches the Dockerfile,
+   `rust-toolchain.toml` and the `dtolnay/rust-toolchain` ref in one commit.
 
 GHCR image references are lowercase by requirement (`clickca`), regardless of
 the GitHub owner's display case (`clickCA`).
@@ -75,6 +80,8 @@ the GitHub owner's display case (`clickCA`).
   release workflow's Linux leg alone pins the image.
 - Private-repo pull of the package is authenticated via `container.credentials`
   using the workflow `GITHUB_TOKEN`.
+- The baked Rust toolchain re-downloads nothing per CI run, but it is one more
+  pin to keep in sync (Dockerfile ↔ `rust-toolchain.toml` ↔ action ref).
 
 ## Out of scope
 
