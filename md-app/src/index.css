@@ -95,3 +95,7 @@
   tab-size: 2;
   white-space: pre;
 }
+
+/* Mobile drawer motion (spring slide + pull-follow gestures) lives in
+   MobileDrawer.tsx — it drives transform/opacity directly and unmounts the
+   drawer when hidden, so no keyframe classes are needed here. */
