@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TouchEvent as ReactTouchEvent } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { FilePlus, FolderOpen } from "lucide-react";
 import type { Vault } from "@/hooks/useVault";
@@ -23,6 +22,7 @@ import { GitPanel } from "./GitPanel";
 import { Inspector } from "./Inspector";
 import { LinksPanel } from "./LinksPanel";
 import { MarkdownEditor, type EditorHandle } from "./NoteEditor";
+import { MobileDrawer } from "./MobileDrawer";
 import { MarkdownPreview } from "./NotePreview";
 import { NoteHeader } from "./NoteHeader";
 import { RevisionViewer } from "./RevisionViewer";
@@ -425,6 +425,8 @@ export function Workspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Drawer motion lives in MobileDrawer (slide spring + pull-follow gesture);
+  // this effect only untoggles when the window grows back to desktop width.
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
     const sync = () => {
@@ -434,57 +436,6 @@ export function Workspace({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
-
-  // Drawer edge swipes (mobile only): drag in from the left screen edge opens
-  // the drawer; a horizontal swipe left on the drawer closes it. Read-only
-  // touch listeners — we never preventDefault, so scrolling and taps inside
-  // the drawer (and under the edge zone) are untouched.
-  const drawerSwipe = useRef<{ x: number; y: number } | null>(null);
-  const onDrawerTouchStart = (e: ReactTouchEvent) => {
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    // Swipes born on buttons/inputs are taps with jitter — let them be clicks.
-    if ((t.target as HTMLElement).closest?.("button, a, input, textarea")) return;
-    drawerSwipe.current = { x: t.clientX, y: t.clientY };
-  };
-  const onDrawerTouchEnd = (e: ReactTouchEvent) => {
-    const start = drawerSwipe.current;
-    drawerSwipe.current = null;
-    if (!start) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    if (dx < -56 && Math.abs(dx) > Math.abs(dy) * 1.5) setDrawerOpen(false);
-  };
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
-    if (mq.matches) return; // desktop: no edge gesture
-    let start: { x: number; y: number } | null = null;
-    const onStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      const t = e.touches[0];
-      if (t.clientX > 28) return;
-      if ((t.target as HTMLElement).closest?.("button, a, input, textarea")) return;
-      start = { x: t.clientX, y: t.clientY };
-    };
-    const onEnd = (e: TouchEvent) => {
-      if (!start) return;
-      const s = start;
-      start = null;
-      const t = e.changedTouches[0];
-      const dx = t.clientX - s.x;
-      const dy = t.clientY - s.y;
-      if (dx > 56 && Math.abs(dx) > Math.abs(dy) * 1.5) setDrawerOpen(true);
-    };
-    window.addEventListener("touchstart", onStart, { passive: true });
-    window.addEventListener("touchend", onEnd, { passive: true });
-    return () => {
-      window.removeEventListener("touchstart", onStart);
-      window.removeEventListener("touchend", onEnd);
-    };
-    // Re-arm per drawer state so a closing swipe never instantly reopens.
-  }, [drawerOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commands: PaletteCommand[] = [
     { id: "new", label: "New note", hint: "Ctrl N", run: newNote },
@@ -651,28 +602,16 @@ export function Workspace({
         </div>
       )}
 
-      {drawerOpen && (
-        <div
-          className="fixed inset-0 z-40 flex md:hidden"
-          onTouchStart={onDrawerTouchStart}
-          onTouchEnd={onDrawerTouchEnd}
+      <MobileDrawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <Sidebar
+          {...sidebarProps}
+          onCollapse={() => setDrawerOpen(false)}
+          resizable={false}
+          className="pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl"
         >
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            className="absolute inset-0 bg-background/70 backdrop-blur-[2px]"
-            onClick={() => setDrawerOpen(false)}
-          />
-          <Sidebar
-            {...sidebarProps}
-            onCollapse={() => setDrawerOpen(false)}
-            resizable={false}
-            className="relative w-[85%] max-w-xs pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl"
-          >
-            {sidebarContent}
-          </Sidebar>
-        </div>
-      )}
+          {sidebarContent}
+        </Sidebar>
+      </MobileDrawer>
 
       <main className="flex min-w-0 flex-1 flex-col">
         <NoteHeader
@@ -724,7 +663,7 @@ export function Workspace({
                     />
                   )}
                   <div
-                    className="pointer-events-none absolute right-6 bottom-3 z-10 rounded-md border border-border bg-panel/90 px-2.5 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
+                    className="pointer-events-none absolute right-6 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-10 rounded-md border border-border bg-panel/90 px-2.5 py-1 text-[11px] text-muted-foreground backdrop-blur-sm"
                     aria-label="Note statistics"
                   >
                     {wordCount(activeFile.content)} words · {activeFile.content.length} chars
