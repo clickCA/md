@@ -14,14 +14,22 @@ Commands reject with a structured payload (serialized from `error.rs::AppError`)
 { "code": "auth", "message": "authentication required" }
 ```
 
-| Code           | Meaning                                            | Typical trigger                          |
-| -------------- | -------------------------------------------------- | ---------------------------------------- |
-| `auth`         | Remote requires credentials                        | fetch/push against a protected remote    |
-| `vault`        | Engine failure (git transport, journal, merge)     | corrupt repo, network failure            |
-| `path-escape`  | Requested path is outside the vault root           | tampered client input                    |
-| `invalid-input`| Malformed argument from the UI layer               | bad base64 image payload, bad action     |
-| `io`           | Filesystem failure                                 | missing file, permission denied          |
-| `internal`     | Unexpected state / bug                             | app-data dir unavailable                 |
+| Code            | Meaning                                        | Typical trigger                       |
+| --------------- | ---------------------------------------------- | ------------------------------------- |
+| `auth`          | Remote requires credentials                    | fetch/push against a protected remote |
+| `vault`         | Engine failure (git transport, journal, merge) | corrupt repo, network failure         |
+| `path-escape`   | Requested path is outside the vault root       | tampered client input                 |
+| `invalid-input` | Malformed argument from the UI layer           | bad base64 image payload, bad action  |
+| `io`            | Filesystem failure                             | missing file, permission denied       |
+| `internal`      | Unexpected state / bug                         | app-data dir unavailable              |
+
+The engine maps rejected credentials to the typed `AuthRequired` marker on both
+transports, so a wrong or revoked token reaches the UI as the credentials dialog
+(not a generic `vault` failure): the gix fetch path matches the error if it is
+classified unauthenticated **or** carries
+`gix_transport::client::AuthenticationRequired` (either signal is sufficient),
+and the libgit2 push path maps status-401 / "authentication" failures the same
+way.
 
 The UI resolves all rejections through `src/lib/ipc.ts` (`errorMessage`, `isAuthError`),
 which also accepts plain-string errors for transport paths outside Tauri's serializer.
@@ -31,18 +39,18 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 
 ## Vault lifecycle & sync
 
-| Command            | Arguments                     | Returns                                              |
-| ------------------ | ----------------------------- | ---------------------------------------------------- |
-| `default_vault_dir`| —                             | `string` — absolute default vault dir (created)      |
-| `vaults_home`      | —                             | `string` — absolute app-sandboxed vaults container (created); where mobile managed vaults live |
-| `vault_list`       | —                             | `VaultInfo[]` — each vault under the sandboxed home  |
-| `vault_clone`      | `url`, `name?`, `credentials?`| `VaultInfo` — clone an http(s) git remote into the sandbox |
-| `vault_probe`      | `dir`                         | `Probe { exists, isVault, remoteUrl?, noteCount? }`  |
-| `vault_make`       | `dir`, `remoteUrl?`           | `Status` — opens or creates the vault, sets remote   |
-| `vault_status`     | `dir`                         | `Status`                                             |
-| `vault_set_sync_excluded` | `dir`, `on`            | `Status` — toggles selective sync (exclusions vs full sync) for this device |
-| `vault_sync`       | `dir`, `credentials?`         | `Sync { action, head?, remote?, conflicts[] }`       |
-| `vault_sync_from`  | `dir`, `remote`, `credentials?` | `Sync` — fetch + merge FROM `remote`, push the result to the primary |
+| Command                   | Arguments                       | Returns                                                                                        |
+| ------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `default_vault_dir`       | —                               | `string` — absolute default vault dir (created)                                                |
+| `vaults_home`             | —                               | `string` — absolute app-sandboxed vaults container (created); where mobile managed vaults live |
+| `vault_list`              | —                               | `VaultInfo[]` — each vault under the sandboxed home                                            |
+| `vault_clone`             | `url`, `name?`, `credentials?`  | `VaultInfo` — clone an http(s) git remote into the sandbox                                     |
+| `vault_probe`             | `dir`                           | `Probe { exists, isVault, remoteUrl?, noteCount? }`                                            |
+| `vault_make`              | `dir`, `remoteUrl?`             | `Status` — opens or creates the vault, sets remote                                             |
+| `vault_status`            | `dir`                           | `Status`                                                                                       |
+| `vault_set_sync_excluded` | `dir`, `on`                     | `Status` — toggles selective sync (exclusions vs full sync) for this device                    |
+| `vault_sync`              | `dir`, `credentials?`           | `Sync { action, head?, remote?, conflicts[] }`                                                 |
+| `vault_sync_from`         | `dir`, `remote`, `credentials?` | `Sync` — fetch + merge FROM `remote`, push the result to the primary                           |
 
 `Status = { root, head?, remoteMain?, pending, syncExcluded, conflicts: Conflict[], lastRun: Journal? }` — `pending` reflects the sync view (excluded edits never surface)
 `VaultInfo = { name, dir, remoteUrl?, noteCount? }`
@@ -54,7 +62,7 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 - `vault_clone` is create-with-remote + one clone cycle (fetch → materialize) into
   `<app data>/vaults/<name>`. `name` is optional — the backend derives a slug from
   the URL (`owner/repo.git` → `owner-repo`, sanitized). SSH remotes are rejected
-  (`invalid-input`); HTTPS only, because mobile has no ssh-agent. An *empty* remote
+  (`invalid-input`); HTTPS only, because mobile has no ssh-agent. An _empty_ remote
   (a repo with no commits) clones successfully the way `git clone` does. Auth
   failures surface as `auth` so the UI prompts for credentials and retries.
 - **Mobile vaults:** desktop keeps the single `default_vault_dir` + native folder
@@ -68,23 +76,23 @@ at `error` level with the span context. Verbosity is controlled by `RUST_LOG` (d
 
 ## Notes
 
-| Command         | Arguments                  | Returns                                          |
-| --------------- | -------------------------- | ------------------------------------------------ |
-| `note_list`     | `dir`                      | `string[]` — vault-relative `.md` paths, sorted; `.quireignore` matches are hidden (see [Path exclusions](#path-exclusions)) |
-| `note_read`     | `dir`, `path`              | `string` — UTF-8 content                         |
-| `note_write`    | `dir`, `path`, `content`   | `void` — atomic write through vault-core         |
-| `note_delete`   | `dir`, `path`              | `void`                                           |
-| `note_statuses` | `dir`                      | `NoteStatus[] = { path, status }` — `clean \| modified \| untracked` via blob-oid diff (no content I/O) |
-| `note_base`     | `dir`, `path`              | `string?` — committed content at HEAD, `null` when untracked |
-| `note_snapshot` | `dir`                      | `{ path, content, committed }[]` — everything the editor needs in one round trip (`committed` mirrors `note_base` semantics); preferred over the per-note fan-out |
-| `note_move`     | `dir`, `from`, `to`        | `void` — rename, removes emptied parent folder   |
-| `folder_create` | `dir`, `path`              | `void`                                           |
-| `broken_links`  | `dir`                      | `BrokenLink[] = { source, target, line, kind, text }` — every unresolved `[[wikilink]]` and relative Markdown link, ordered by (source, line, target). Resolution mirrors the UI link dialect (alias/fragment stripping, percent-decoding, source-relative candidates, unique-suffix and title matches) plus lexical `..`/`.` normalization; ambiguous suffix matches are reported, never guessed. Excluded notes are neither scanned as sources nor accepted as targets; non-note Markdown targets (web URLs, images, pure anchors) are skipped. |
-| `search_notes`  | `dir`, `query`             | `SearchHit[] = { path, matches: { line, snippet }[] }` (capped at 200 hits). Behavior: FTS5-indexed and bm25-ranked (see `docs/adr/2026-10-30-search-index.md`); the index is stat-verified before every query and updated incrementally on drift, so external edits are always reflected. Non-ASCII queries fall back to a line scan. `.quireignore` matches are never indexed or returned; making a file excluded purges its tokens from the index on the next query. |
+| Command         | Arguments                | Returns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `note_list`     | `dir`                    | `string[]` — vault-relative `.md` paths, sorted; `.quireignore` matches are hidden (see [Path exclusions](#path-exclusions))                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `note_read`     | `dir`, `path`            | `string` — UTF-8 content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `note_write`    | `dir`, `path`, `content` | `void` — atomic write through vault-core                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `note_delete`   | `dir`, `path`            | `void`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `note_statuses` | `dir`                    | `NoteStatus[] = { path, status }` — `clean \| modified \| untracked` via blob-oid diff (no content I/O)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `note_base`     | `dir`, `path`            | `string?` — committed content at HEAD, `null` when untracked                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `note_snapshot` | `dir`                    | `{ path, content, committed }[]` — everything the editor needs in one round trip (`committed` mirrors `note_base` semantics); preferred over the per-note fan-out                                                                                                                                                                                                                                                                                                                                                                                 |
+| `note_move`     | `dir`, `from`, `to`      | `void` — rename, removes emptied parent folder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `folder_create` | `dir`, `path`            | `void`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `broken_links`  | `dir`                    | `BrokenLink[] = { source, target, line, kind, text }` — every unresolved `[[wikilink]]` and relative Markdown link, ordered by (source, line, target). Resolution mirrors the UI link dialect (alias/fragment stripping, percent-decoding, source-relative candidates, unique-suffix and title matches) plus lexical `..`/`.` normalization; ambiguous suffix matches are reported, never guessed. Excluded notes are neither scanned as sources nor accepted as targets; non-note Markdown targets (web URLs, images, pure anchors) are skipped. |
+| `search_notes`  | `dir`, `query`           | `SearchHit[] = { path, matches: { line, snippet }[] }` (capped at 200 hits). Behavior: FTS5-indexed and bm25-ranked (see `docs/adr/2026-10-30-search-index.md`); the index is stat-verified before every query and updated incrementally on drift, so external edits are always reflected. Non-ASCII queries fall back to a line scan. `.quireignore` matches are never indexed or returned; making a file excluded purges its tokens from the index on the next query.                                                                           |
 
 ## Path exclusions
 
-A `.quireignore` file at the vault root hides notes from the app's *own*
+A `.quireignore` file at the vault root hides notes from the app's _own_
 surfaces — file tree (`note_list`, `note_snapshot`), search (`search_notes`),
 and everything built on them (AI retrieval, future AI actions). Git's own
 semantics are untouched: excluded notes remain on disk and anything already
@@ -118,29 +126,29 @@ flag reflects the sync view so excluded edits never surface as pending.
 
 ## Files & images
 
-| Command           | Arguments              | Returns                                                       |
-| ----------------- | ---------------------- | ------------------------------------------------------------- |
-| `save_image`      | `dir`, `data` (b64), `ext` | `string` — vault-relative path `assets/paste-<ms>.<ext>`   |
-| `read_file_bytes` | `dir`, `path`          | `string` — base64 bytes (images render as data URLs)          |
-| `vault_path`      | `dir`, `path`          | `string` — absolute path, for "reveal in file manager"        |
+| Command           | Arguments                  | Returns                                                  |
+| ----------------- | -------------------------- | -------------------------------------------------------- |
+| `save_image`      | `dir`, `data` (b64), `ext` | `string` — vault-relative path `assets/paste-<ms>.<ext>` |
+| `read_file_bytes` | `dir`, `path`              | `string` — base64 bytes (images render as data URLs)     |
+| `vault_path`      | `dir`, `path`              | `string` — absolute path, for "reveal in file manager"   |
 
 `read_file_bytes` and `vault_path` reject with `path-escape` when the resolved path
 leaves the vault root.
 
 ## Git state & actions
 
-| Command         | Arguments                              | Returns                                                        |
-| --------------- | -------------------------------------- | -------------------------------------------------------------- |
-| `git_state_cmd` | `dir`                                  | `GitState { remoteUrl?, branch, head?, remote?, relation }`    |
-| `git_action`    | `dir`, `action`, `credentials?`        | `GitState` — after performing the action                       |
-| `git_branches`  | `dir`                                  | `Branches { current, branches[] }` — local branch names, sorted |
-| `git_branch_create` | `dir`, `name`                      | `Branches` — creates a branch at the current head; never switches |
-| `git_branch_switch` | `dir`, `name`                      | `GitState` — switches the vault to the branch (clean tree required) |
-| `git_remotes`   | `dir`                                  | `Remotes { primary, remotes: Remote[] }` — per-remote relation to the current branch |
-| `git_remote_add` | `dir`, `name`, `url`                  | `Remotes` — adds a remote; user-facing adds are https-only (ssh rejected), the engine also accepts `file://` mirrors |
-| `git_remote_remove` | `dir`, `name`                      | `Remotes` — removes; the primary designation falls back if it was the target |
-| `git_remote_rename` | `dir`, `from`, `to`                | `Remotes` — renames; the primary designation follows |
-| `git_remote_set_primary` | `dir`, `name`                 | `Remotes` — designates the push target |
+| Command                  | Arguments                       | Returns                                                                                                              |
+| ------------------------ | ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `git_state_cmd`          | `dir`                           | `GitState { remoteUrl?, branch, head?, remote?, relation }`                                                          |
+| `git_action`             | `dir`, `action`, `credentials?` | `GitState` — after performing the action                                                                             |
+| `git_branches`           | `dir`                           | `Branches { current, branches[] }` — local branch names, sorted                                                      |
+| `git_branch_create`      | `dir`, `name`                   | `Branches` — creates a branch at the current head; never switches                                                    |
+| `git_branch_switch`      | `dir`, `name`                   | `GitState` — switches the vault to the branch (clean tree required)                                                  |
+| `git_remotes`            | `dir`                           | `Remotes { primary, remotes: Remote[] }` — per-remote relation to the current branch                                 |
+| `git_remote_add`         | `dir`, `name`, `url`            | `Remotes` — adds a remote; user-facing adds are https-only (ssh rejected), the engine also accepts `file://` mirrors |
+| `git_remote_remove`      | `dir`, `name`                   | `Remotes` — removes; the primary designation falls back if it was the target                                         |
+| `git_remote_rename`      | `dir`, `from`, `to`             | `Remotes` — renames; the primary designation follows                                                                 |
+| `git_remote_set_primary` | `dir`, `name`                   | `Remotes` — designates the push target                                                                               |
 
 `relation ∈ no-remote | empty | not-published | remote-only | in-sync | ahead | behind | diverged | unrelated | unknown`
 
@@ -179,13 +187,13 @@ normal note write path, so it lands as a regular (commit-and-sync) change.
 Nothing is ever rewritten — no rebase, no destructive operations — and a
 restored deleted note is simply re-created.
 
-| Command          | Arguments                            | Returns                                                                            |
-| ---------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| `note_history`   | `dir`, `path`, `limit?` (1–200, default 50) | `HistoryEntry[]`, newest first — commits that touched the note; renames are followed, so pre-rename entries carry the old `path` |
-| `vault_history`  | `dir`, `limit?`                      | `Commit[]` — every commit, newest first                                            |
-| `note_revision`  | `dir`, `path`, `oid`, `change`       | `{ content }` — the entry's content read-only; a `deleted` entry resolves to the content the deletion removed |
-| `note_restore`   | `dir`, `path`, `oid`, `change`       | `void` — writes the revision content back to `path` (the note's current path)      |
-| `vault_restore`  | `dir`, `oid`                         | `void` — writes every note present at the revision back; notes created later are left alone |
+| Command         | Arguments                                   | Returns                                                                                                                          |
+| --------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `note_history`  | `dir`, `path`, `limit?` (1–200, default 50) | `HistoryEntry[]`, newest first — commits that touched the note; renames are followed, so pre-rename entries carry the old `path` |
+| `vault_history` | `dir`, `limit?`                             | `Commit[]` — every commit, newest first                                                                                          |
+| `note_revision` | `dir`, `path`, `oid`, `change`              | `{ content }` — the entry's content read-only; a `deleted` entry resolves to the content the deletion removed                    |
+| `note_restore`  | `dir`, `path`, `oid`, `change`              | `void` — writes the revision content back to `path` (the note's current path)                                                    |
+| `vault_restore` | `dir`, `oid`                                | `void` — writes every note present at the revision back; notes created later are left alone                                      |
 
 `HistoryEntry = { oid, message, author, time, change, path }` with
 `change ∈ added | modified | deleted` (the kind of change that revision made
@@ -203,11 +211,11 @@ API keys — each agent reads its own auth from the user's HOME, exactly as it w
 from a terminal. The working directory is always the vault root, so whatever the
 agent edits is captured by the downstream git review/sync flow.
 
-| Command         | Arguments                                    | Returns                                        |
-| --------------- | -------------------------------------------- | ---------------------------------------------- |
-| `agent_detect`  | —                                            | `AgentProvider[]` — providers whose CLI is on PATH |
-| `agent_run`     | `dir`, `provider`, `prompt`, `options?`, `onEvent` | `AgentRun` — streams `AgentEvent`s over `onEvent`, resolves when the process exits (or is cancelled) |
-| `agent_stop`    | —                                            | `void` — cancel the in-flight run (kills the child) |
+| Command        | Arguments                                          | Returns                                                                                              |
+| -------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `agent_detect` | —                                                  | `AgentProvider[]` — providers whose CLI is on PATH                                                   |
+| `agent_run`    | `dir`, `provider`, `prompt`, `options?`, `onEvent` | `AgentRun` — streams `AgentEvent`s over `onEvent`, resolves when the process exits (or is cancelled) |
+| `agent_stop`   | —                                                  | `void` — cancel the in-flight run (kills the child)                                                  |
 
 `AgentProvider = { id, label, available, installHint }` — `id ∈ opencode | codex | claude`.
 `AgentEvent = { kind: "output", stream: "stdout" | "stderr", text }` — one line/chunk of output.
@@ -248,11 +256,11 @@ The AI agent panel runs a coding-agent CLI against the vault folder. This is the
 **only** place the app launches external CLI subprocesses; see
 `docs/adr/2026-11-06-coding-agent-panel.md`.
 
-| Command       | Arguments                                                          | Returns                                                                 |
-| ------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `agent_detect`| —                                                                  | `AgentProvider[]` — the supported CLIs and whether each is on PATH      |
-| `agent_run`   | `dir`, `provider`, `prompt`, `options`, `onEvent` (streaming `Channel`) | `AgentRun` — after streaming output over the channel               |
-| `agent_stop`  | —                                                                  | `void` — cancels the in-flight run (kills the child)                    |
+| Command        | Arguments                                                               | Returns                                                            |
+| -------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `agent_detect` | —                                                                       | `AgentProvider[]` — the supported CLIs and whether each is on PATH |
+| `agent_run`    | `dir`, `provider`, `prompt`, `options`, `onEvent` (streaming `Channel`) | `AgentRun` — after streaming output over the channel               |
+| `agent_stop`   | —                                                                       | `void` — cancels the in-flight run (kills the child)               |
 
 - `AgentProvider = { id: "opencode" | "codex" | "claude", label, available, installHint }` —
   `available` is a PATH probe (no execution). Auth is the CLI's own HOME config; Quire never
@@ -284,11 +292,11 @@ Single-shot, tool-disabled text generation through the same coding-agent CLIs
 the UI decides (diff preview → accept/reject). Auth is each CLI's own HOME
 config; Quire never holds API keys.
 
-| Command   | Arguments                                            | Returns                                                       |
-| --------- | ---------------------------------------------------- | ------------------------------------------------------------- |
-| `ai_text` | `dir`, `provider`, `instruction`, `options?`, `onEvent` | `AiText` — streams `AiEvent`s over `onEvent`, resolves on completion |
-| `ai_ask`  | `dir`, `provider`, `question`, `options?`, `onEvent`  | `AiText` — retrieval Q&A: FTS5 top-k excerpts fenced as data; the answer cites them |
-| `ai_stop` | —                                                    | `void` — cancel the in-flight run (kills the child)            |
+| Command   | Arguments                                               | Returns                                                                             |
+| --------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `ai_text` | `dir`, `provider`, `instruction`, `options?`, `onEvent` | `AiText` — streams `AiEvent`s over `onEvent`, resolves on completion                |
+| `ai_ask`  | `dir`, `provider`, `question`, `options?`, `onEvent`    | `AiText` — retrieval Q&A: FTS5 top-k excerpts fenced as data; the answer cites them |
+| `ai_stop` | —                                                       | `void` — cancel the in-flight run (kills the child)                                 |
 
 `AiEvent = { kind: "output", stream: "stdout" | "stderr", text }`
 `AiTextOptions = { context? }` — optional note content, fenced off as data.
@@ -324,7 +332,7 @@ config; Quire never holds API keys.
    (`commands/dto.rs` ⇄ `src/types.ts`).
 2. The UI never touches the filesystem or Git directly — every effect goes through a
    command listed here (Tauri plugins for dialogs/opener/clipboard-manager/updater/process
-   are the only exceptions). The agent commands spawn the user's *own* coding-agent CLI as an
+   are the only exceptions). The agent commands spawn the user's _own_ coding-agent CLI as an
    external subprocess (documented in its ADR) — the single deliberate exception, scoped to
    that feature.
 3. `vault-core` knows nothing about Tauri; the command layer is the only adapter.
