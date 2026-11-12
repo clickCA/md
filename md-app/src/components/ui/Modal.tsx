@@ -17,6 +17,9 @@ export default function Modal({ open, onOpenChange, className, children }: Props
         <Dialog.Popup
           className={
             "fixed left-1/2 -translate-x-1/2 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-2xl " +
+            // Never taller than the viewport (short screens / soft keyboard):
+            // the popup scrolls instead of clipping past the bottom edge.
+            "max-h-[86dvh] overflow-y-auto " +
             (className ?? "top-1/3 w-80 max-w-[90vw]")
           }
         >

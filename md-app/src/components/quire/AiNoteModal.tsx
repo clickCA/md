@@ -31,7 +31,7 @@ export function AiNoteModal({ phase, providerLabel, onCreate, onStop, onDismiss,
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-background/60 px-4 pt-[14vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-background/60 px-4 pt-[max(14vh,env(safe-area-inset-top))] backdrop-blur-[2px]"
       onMouseDown={onClose}
     >
       <div
