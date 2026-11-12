@@ -32,6 +32,7 @@ jobs:
         password: ${{ github.token }}
     permissions:
       contents: write
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -48,7 +49,10 @@ jobs:
           node-version: 26
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # One toolchain, pinned: build on the exact channel rust-toolchain.toml
+      # selects (1.99.1) rather than latest-stable — the repo pin wins inside
+      # the tree either way, and this avoids a second toolchain download.
+      - uses: dtolnay/rust-toolchain@1.99.1
 
       - uses: Swatinem/rust-cache@v2
 
@@ -103,7 +107,10 @@ jobs:
           node-version: 26
           cache: pnpm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # One toolchain, pinned: build on the exact channel rust-toolchain.toml
+      # selects (1.99.1) rather than latest-stable — the repo pin wins inside
+      # the tree either way, and this avoids a second toolchain download.
+      - uses: dtolnay/rust-toolchain@1.99.1
 
       # macOS: build a universal binary (Apple Silicon + Intel)
       - name: Add macOS Rust targets

@@ -9,6 +9,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   frontend:
     name: Frontend (lint · typecheck · test · build)
@@ -52,6 +55,13 @@ jobs:
     # Tauri Linux prerequisites are baked into the CI builder image so each run
     # skips the apt-get dance (see docker/ci/Dockerfile; rebuilt by
     # .github/workflows/docker-ci.yml).
+    #
+    # The container pulls the private md-ci image, so the token needs packages
+    # read — an explicit permissions block drops any scope you don't list, so
+    # it must be repeated here (not only at workflow level).
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ghcr.io/clickca/md-ci:latest
       credentials:
@@ -60,14 +70,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # the toolchain channel itself is pinned by rust-toolchain.toml
-      - uses: dtolnay/rust-toolchain@stable
+      # One toolchain, pinned: rust-toolchain.toml selects 1.99.1, so install
+      # exactly that (with the tools the gates need) instead of latest-stable,
+      # which never compiles anything here — the old setup downloaded both.
+      # Bump this ref in the same commit as a rust-toolchain.toml pin change.
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt, clippy
-
-      # the pinned toolchain is a separate install without components; add them
-      - name: Toolchain components (rustfmt, clippy)
-        run: rustup component add rustfmt clippy
 
       - uses: Swatinem/rust-cache@v2
 
