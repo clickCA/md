@@ -337,8 +337,19 @@ impl GixBackend {
         let branch = self.current_branch()?;
         let force_char = if force { "+" } else { "" };
         let refspec = format!("{force_char}refs/heads/{branch}:refs/heads/{branch}");
-        r.push(&[refspec], Some(&mut opts))
-            .context("libgit2 push")?;
+        r.push(&[refspec], Some(&mut opts)).map_err(|e| {
+            // libgit2 does not type auth failures; rejected credentials
+            // surface as raw HTTP strings (e.g. "request failed with
+            // status code 401") or as our credentials-callback error
+            // below. Map both to the typed marker so the UI prompts for
+            // credentials instead of showing a generic sync failure.
+            let msg = e.message().to_string();
+            if msg.contains("authentication") || msg.contains("401") {
+                anyhow!(crate::git_backend::AuthRequired).context(e)
+            } else {
+                anyhow!(e).context("libgit2 push")
+            }
+        })?;
         let rejected = rejected.borrow();
         if !rejected.is_empty() {
             return Err(anyhow!("push rejected: {}", rejected.join("; ")));
@@ -695,8 +706,14 @@ impl GitBackend for GixBackend {
                 // token) arrive here classified as unauthenticated — surface
                 // the typed marker so the command layer maps it to
                 // AppError::Auth and the UI shows the sign-in dialog instead
-                // of a generic clone failure.
-                if e.is_unauthenticated() {
+                // of a generic clone failure. The classification is gix's
+                // primary signal; the typed downcast is a second, independent
+                // one so a classification that failed to propagate (observed
+                // once under parallel test load) can't break the auth flow.
+                let typed = e
+                    .downcast_any_ref::<gix_transport::client::AuthenticationRequired>()
+                    .is_some();
+                if e.is_unauthenticated() || typed {
                     anyhow!(crate::git_backend::AuthRequired)
                 } else {
                     anyhow!("prepare_fetch failed: {e}")
