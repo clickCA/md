@@ -12,6 +12,11 @@
   body,
   #root {
     @apply h-full overflow-hidden;
+    /* Android edge-to-edge: the system pull-to-refresh / overscroll stretch
+       fights the app's own edge-swipe gestures (MobileDrawer edge pull) and
+       rubber-bands the locked shell. Kill the scroll chain at the root; inner
+       scrollers (editor, panels) keep native behavior. */
+    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground font-sans;
