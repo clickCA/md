@@ -16,6 +16,11 @@ SHELL := /usr/bin/env bash
 PNPM  ?= pnpm
 CARGO ?= cargo
 
+# Tauri builds release by default (there is no --release flag). Shipping
+# artifacts use that default; opt into debug only for local iteration:
+#   make android ANDROID_BUILD_FLAGS=--debug
+ANDROID_BUILD_FLAGS ?=
+
 BENCH_DIR   ?= /tmp/quire-bench
 BENCH_NOTES ?= 2000
 BENCH_WORDS ?= 120
@@ -97,7 +102,7 @@ bench: ## Large-workspace perf snapshot (release; NOT part of make test)
 pacman-publish: ## Refresh pacman repo (md-repo) from the latest release
 	packaging/arch/publish.sh $(TAG)
 
-android: ## Build debug APK (arm64) — requires ~/Android/env.sh (JDK + Android SDK)
+android: ## Build signed release APK (arm64) — requires ~/Android/env.sh + keystore.properties
 	@source $(HOME)/Android/env.sh && \
 	TC="$$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" && \
 	SHIMS="$$HOME/.cache/md/android-shims" && mkdir -p "$$SHIMS" && \
@@ -111,7 +116,7 @@ android: ## Build debug APK (arm64) — requires ~/Android/env.sh (JDK + Android
 	PATH="$$SHIMS:$$PATH" \
 	CC_aarch64_linux_android="$$SHIMS/aarch64-linux-android-clang" \
 	AR_aarch64_linux_android="$$SHIMS/aarch64-linux-android-ar" \
-	$(PNPM) --filter md-app tauri android build --debug --apk --target aarch64
+	$(PNPM) --filter md-app exec tauri android build $(ANDROID_BUILD_FLAGS) --apk --target aarch64
 
 android-log: ## Follow the app's logcat output for a connected device
 	$(HOME)/Android/Sdk/platform-tools/adb logcat --pid=$$($(HOME)/Android/Sdk/platform-tools/adb shell pidof -s com.clickca.md)

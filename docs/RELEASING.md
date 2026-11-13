@@ -22,8 +22,14 @@
    `md-ci` builder image (deps baked in — see `docker/ci/Dockerfile` and
    ADR 2026-11-06); if a Linux toolchain/dep bump is needed, change that
    Dockerfile, merge, and CI rebuilds the image automatically.
-5. **Android APK** — built locally from the same commit: `make android`,
-   then upload to the release as `md-app-android-arm64.apk`.
+5. **Android APK** — built locally from the same commit: `make android`
+   (signed **release** build; requires `~/Android/env.sh` and the gitignored
+   `md-app/src-tauri/gen/android/keystore.properties`), then upload the
+   `app-universal-release.apk` from
+   `md-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/`
+   to the release as `md-app-android-arm64.apk`. Do **not** use
+   `ANDROID_BUILD_FLAGS=--debug` for a shipped artifact — that produces a
+   debuggable, cleartext-allowed APK signed with the local debug key.
 6. **Point the distribution surfaces at the new tag**:
    - landing button: `landing/src/components/Footer.astro` → rebuild → deploy
      (`pnpm build:landing` + `wrangler pages deploy landing/dist`)

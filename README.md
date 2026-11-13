@@ -128,7 +128,7 @@ Rust invocations, and neither duplicates the other):
 | `make test`         | Vitest + cargo test over both workspaces  |
 | `make build`        | Frontend build + Rust workspace compile   |
 | `make check`        | Full verification suite (mirrors CI)      |
-| `make android`      | Debug APK (arm64) — needs `~/Android/env.sh` |
+| `make android`      | Signed release APK (arm64) — needs `~/Android/env.sh` + `keystore.properties` |
 | `make android-log`  | Follow logcat for the installed app       |
 | `make pacman-publish` | Refresh the Arch pacman repo from the latest release |
 | `make clean`        | Remove build artifacts                    |
