@@ -5,6 +5,10 @@
 # follow-up.
 
 name: Release
+# Tag pushes default the run title to the tagged commit's subject — and the
+# tag points at a merge commit, so runs read "Merge pull request #55 …".
+# Name them after the tag instead so the release run is identifiable.
+run-name: Release ${{ github.ref_name }}
 
 on:
   push:
