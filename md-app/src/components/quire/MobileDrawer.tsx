@@ -370,8 +370,8 @@ export function MobileDrawer({ open, onOpenChange, children }: MobileDrawerProps
         ref={scrimRef}
         type="button"
         aria-label="Close sidebar"
-        className="absolute inset-0 bg-background/70 backdrop-blur-[2px]"
-        style={{ opacity: 0 }}
+        className="absolute inset-0 bg-background/80"
+        style={{ opacity: 0, willChange: "opacity" }}
         onClick={() => onOpenChange(false)}
       />
       <div
