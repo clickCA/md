@@ -1,17 +1,17 @@
 # Maintainer: clickCA <chanakorn.aramsak@gmail.com>
 pkgname=md-app
 pkgver=0.1.0
-pkgrel=6
+pkgrel=7
 # GitHub release tag the .deb comes from (app version and tag diverge on
 # pre-releases: artifacts stay 0.1.0, the tag carries the alpha suffix)
-_tag=v0.1.0-alpha.5
+_tag=v0.1.0-alpha.6
 pkgdesc="Local-first Markdown vault with git sync"
 arch=('x86_64')
 url="https://github.com/clickCA/md"
 license=('MIT')
 depends=('webkit2gtk-4.1' 'gtk3')
 source=("md-app_${pkgver}_amd64.deb::https://github.com/clickCA/md/releases/download/${_tag}/md-app_${pkgver}_amd64.deb")
-sha256sums=('7650148c436daa7363279d83e33b37c179ac6021ea742f5f5d7b86474d03f031')
+sha256sums=('eb8ae1b78df698a473aece2f756a023b00d212739735e45400f38967f84cc27b')
 options=('!strip')
 
 package() {
