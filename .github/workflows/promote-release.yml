@@ -12,6 +12,7 @@
 # workflow would silently never build. See docs/RELEASING.md.
 
 name: Promote to release
+run-name: Promote main → release
 
 on:
   workflow_dispatch:
