@@ -102,8 +102,11 @@ bench: ## Large-workspace perf snapshot (release; NOT part of make test)
 pacman-publish: ## Refresh pacman repo (md-repo) from the latest release
 	packaging/arch/publish.sh $(TAG)
 
-android: ## Build signed release APK (arm64) — requires ~/Android/env.sh + keystore.properties
-	@source $(HOME)/Android/env.sh && \
+android: ## Build signed release APK (arm64) — needs Android SDK/NDK + keystore.properties
+	@if [ -f "$(HOME)/Android/env.sh" ]; then . "$(HOME)/Android/env.sh"; fi; \
+	[ -n "$${ANDROID_HOME:-}" ] || { echo "android: set ANDROID_HOME (or create ~/Android/env.sh)" >&2; exit 1; }; \
+	[ -n "$${NDK_HOME:-}" ] || { echo "android: set NDK_HOME (or create ~/Android/env.sh)" >&2; exit 1; }; \
+	export ANDROID_SDK_ROOT="$${ANDROID_SDK_ROOT:-$$ANDROID_HOME}"; \
 	TC="$$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" && \
 	SHIMS="$$HOME/.cache/md/android-shims" && mkdir -p "$$SHIMS" && \
 	for p in x86_64-linux-android aarch64-linux-android armv7a-linux-androideabi i686-linux-android; do \

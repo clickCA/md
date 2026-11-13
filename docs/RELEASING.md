@@ -22,8 +22,29 @@
    `md-ci` builder image (deps baked in — see `docker/ci/Dockerfile` and
    ADR 2026-11-06); if a Linux toolchain/dep bump is needed, change that
    Dockerfile, merge, and CI rebuilds the image automatically.
-5. **Android APK** — built locally from the same commit: `make android`
-   (signed **release** build; requires `~/Android/env.sh` and the gitignored
+5. **Android APK** — the Release workflow builds and attaches it as
+   `md-app-android-arm64.apk`. It is gated on the repo variable
+   `ANDROID_RELEASE_ENABLED` (a job-level `if` — secrets are not readable
+   there), so a release without the signing secrets just skips the job:
+   ```bash
+   gh variable set ANDROID_RELEASE_ENABLED --body true   # after the secrets exist
+   ```
+   Secrets (repository → Settings → Secrets → Actions):
+
+   | Secret | Value |
+   | --- | --- |
+   | `ANDROID_KEYSTORE_BASE64` | `base64 -w0 ~/.android/upload-keystore.jks` |
+   | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+   | `ANDROID_KEY_ALIAS` | `upload` |
+   | `ANDROID_KEY_PASSWORD` | key password |
+
+   CI runs `tauri android init --ci` (because `gen/android` is gitignored),
+   writes `keystore.properties` from the secrets, then runs `make android` —
+   the same signed **release** build used locally. Keep the job's
+   `NDK_VERSION` in sync with `~/Android/env.sh`.
+
+   Manual fallback from the same commit: `make android` (needs
+   `~/Android/env.sh` and the gitignored
    `md-app/src-tauri/gen/android/keystore.properties`), then upload the
    `app-universal-release.apk` from
    `md-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/`

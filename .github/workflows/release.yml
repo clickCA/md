@@ -1,8 +1,8 @@
-# Desktop release builds — triggered by pushing a v* tag.
-# Builds Linux (deb/rpm/AppImage) and Windows (msi/NSIS) bundles and
-# attaches them to the GitHub release for that tag.
-# Android APKs are built locally (see `make android`); NDK setup on CI is a
-# follow-up.
+# Release builds — triggered by pushing a v* tag.
+# Builds Linux (deb/rpm/AppImage), Windows (msi/NSIS), macOS (universal dmg)
+# and Android (signed arm64 APK) and attaches them to the GitHub release for
+# that tag. The Android leg only runs once the signing secrets exist — see
+# docs/RELEASING.md.
 
 name: Release
 # Tag pushes default the run title to the tagged commit's subject — and the
@@ -142,3 +142,104 @@ jobs:
           # repo; AppImage gets a signature as a bonus).
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+  # Android ships from CI so the APK is built from the tagged tree with the
+  # same upload key every time. `gen/android` is gitignored, so the job runs
+  # `tauri android init --ci` on a fresh checkout and drops in the signing
+  # config the built-in release build type expects.
+  #
+  # The job is skipped until the four signing secrets exist (a job-level `if`
+  # can't read secrets, so a repo variable gates it):
+  #   gh variable set ANDROID_RELEASE_ENABLED --body true
+  android:
+    name: Android (arm64 APK)
+    runs-on: ubuntu-latest
+    if: vars.ANDROID_RELEASE_ENABLED == 'true'
+    permissions:
+      contents: write
+    env:
+      # Keep in sync with the NDK in ~/Android/env.sh — see docs/RELEASING.md.
+      NDK_VERSION: 27.2.12479018
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm version comes from packageManager in package.json
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      # The Tauri Android template and AGP need JDK 17.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37 build-tools;37.0.0 ndk;${{ env.NDK_VERSION }}
+
+      - name: Select the NDK
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate the Android project
+        run: pnpm --filter md-app exec tauri android init --ci --skip-targets-install
+
+      - name: Configure release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::missing repository secret $name — see docs/RELEASING.md"
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/upload-keystore.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > md-app/src-tauri/gen/android/keystore.properties
+
+      # `make android` is the single source of truth (compiler shims included),
+      # so CI cannot drift from the local release build.
+      - name: Build signed APK
+        run: make android
+
+      - name: Verify the APK signature
+        run: |
+          APK=md-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+          test -f "$APK"
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$APK" | head -5
+          cp "$APK" "$RUNNER_TEMP/md-app-android-arm64.apk"
+
+      - name: Attach the APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The desktop jobs create the release; wait for it rather than racing
+          # tauri-action (a second `gh release create` would conflict).
+          for _ in $(seq 1 60); do
+            gh release view "$TAG" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" "$RUNNER_TEMP/md-app-android-arm64.apk" --clobber
