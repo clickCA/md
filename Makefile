@@ -116,7 +116,7 @@ android: ## Build debug APK (arm64) — requires ~/Android/env.sh (JDK + Android
 android-log: ## Follow the app's logcat output for a connected device
 	$(HOME)/Android/Sdk/platform-tools/adb logcat --pid=$$($(HOME)/Android/Sdk/platform-tools/adb shell pidof -s com.clickca.md)
 
-check: lint format-check typecheck test build ## Full verification suite (mirrors CI)
+check: lint format-check typecheck test build build-landing ## Full verification suite (mirrors CI)
 
 clean: ## Remove build artifacts
 	$(CARGO) clean
