@@ -33,11 +33,6 @@ jobs:
     permissions:
       contents: write
       packages: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - args: ""
     steps:
       - uses: actions/checkout@v7
 
@@ -80,7 +75,6 @@ jobs:
           # signed Windows/macOS bundles (Linux deb/rpm stay on the pacman
           # repo; AppImage gets a signature as a bonus).
           includeUpdaterJson: true
-          args: ${{ matrix.args }}
 
   desktop:
     name: Desktop (${{ matrix.os }})
