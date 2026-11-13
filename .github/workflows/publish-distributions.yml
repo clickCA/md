@@ -1,0 +1,219 @@
+# Publish the two non-GitHub distribution surfaces after a release tag:
+#   landing — bump the Android download button to the new tag, rebuild, deploy
+#             md-landing, and PR the source + dist bump back into main
+#   pacman  — republish md-repo from the fresh .deb, and PR the PKGBUILD bump
+#
+# Both jobs are skipped until their secrets exist — a job-level `if` can't
+# read secrets, so a repo variable gates them:
+#   gh variable set DISTRIBUTION_PUBLISH_ENABLED --body true
+#
+# Secrets (see docs/RELEASING.md):
+#   CLOUDFLARE_API_TOKEN — Pages: Edit on md-landing + md-repo
+#   RELEASE_PAT          — fine-grained PAT on clickCA/md (Contents + Pull
+#                          requests: read/write). Needed for the bump PRs:
+#                          PRs opened with GITHUB_TOKEN don't trigger CI, so
+#                          their required checks would never start. The PAT
+#                          (an admin token) also flips the repo's
+#                          allow-auto-merge setting, idempotently, so the
+#                          bump PRs merge themselves once green.
+#
+# If main has moved past the tag before a bump PR runs, auto-merge silently
+# refuses and the PR waits for a human — nothing ships stale.
+
+name: Publish distributions
+run-name: Publish distributions ${{ github.ref_name }}
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: publish-distributions-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  landing:
+    name: Landing (md-landing)
+    runs-on: ubuntu-latest
+    if: vars.DISTRIBUTION_PUBLISH_ENABLED == 'true'
+    env:
+      TAG: ${{ github.ref_name }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm version comes from packageManager in package.json
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The button URL and the version label — exactly the two edits the
+      # manual release checklist made before this workflow existed.
+      - name: Bump the download button to the tag
+        run: |
+          sed -i -E \
+            -e "s#download/v[0-9]+\.[0-9]+\.[0-9]+[^/]*/#download/${TAG}/#g" \
+            -e "s#· v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)? ·#· ${TAG} ·#g" \
+            landing/src/components/Footer.astro
+          count=$(grep -cF -- "$TAG" landing/src/components/Footer.astro || true)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::expected the tag in exactly 2 places (URL + label), found $count — check landing/src/components/Footer.astro"
+            exit 1
+          fi
+
+      - name: Build
+        run: make build-landing
+
+      # Don't deploy a button that 404s: wait for the Android job's upload.
+      # Best-effort — if it never shows up (Android CI disabled) the deploy
+      # proceeds with a warning.
+      - name: Wait for the APK on the release
+        if: vars.ANDROID_RELEASE_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for _ in $(seq 1 60); do
+            if gh release view "$TAG" --json assets --jq '[.assets[].name] | any(test("md-app-android-arm64\\.apk$"))' 2>/dev/null | grep -q true; then
+              echo "APK is on the release"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::warning::md-app-android-arm64.apk not on $TAG after 30m — the landing button will 404 until the Release workflow's android job uploads it"
+
+      - name: Deploy md-landing
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::missing secret CLOUDFLARE_API_TOKEN (Cloudflare API token, Pages: Edit on md-landing + md-repo) — see docs/RELEASING.md"
+            exit 1
+          fi
+          pnpm dlx wrangler pages deploy landing/dist --project-name md-landing --branch main
+
+      # landing/dist is committed on purpose (AGENTS.md) — PR the bump back
+      # into main so the repo reflects what md-landing now serves.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          path: bump
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Open the landing bump PR
+        working-directory: bump
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::missing secret RELEASE_PAT (fine-grained PAT, Contents + Pull requests: read/write) — see docs/RELEASING.md"
+            exit 1
+          fi
+          cp ../landing/src/components/Footer.astro landing/src/components/Footer.astro
+          rm -rf landing/dist
+          cp -r ../landing/dist landing/dist
+          git config user.name "md-release-bot"
+          git config user.email "md@localhost"
+          BR="release/landing-${TAG}"
+          git switch -c "$BR"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "landing already points at $TAG — no PR needed"
+            exit 0
+          fi
+          git commit -m "landing: point the Android download at $TAG"
+          git push origin "$BR"
+          gh api -X PATCH repos/clickCA/md -F allow_auto_merge=true >/dev/null
+          gh pr view "$BR" >/dev/null 2>&1 || gh pr create \
+            --base main --head "$BR" \
+            --title "landing: point the Android download at $TAG" \
+            --body "Automated bump for \`$TAG\` (md-landing is already deployed with this build)."
+          gh pr merge --auto --merge "$BR" || true
+
+  pacman:
+    name: Pacman repo (md-repo)
+    runs-on: ubuntu-latest
+    if: vars.DISTRIBUTION_PUBLISH_ENABLED == 'true'
+    # makepkg + repo-add come with the container; gh/node/pnpm are installed
+    # below. packaging/arch/publish.sh drives everything.
+    container:
+      image: archlinux:base-devel
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Install tools
+        run: |
+          pacman -Syu --noconfirm github-cli nodejs npm git
+          npm install -g pnpm
+
+      - uses: actions/checkout@v7
+
+      # The .deb is attached by the Release workflow's linux job; this
+      # workflow starts at the same moment, so wait for the asset.
+      - name: Wait for the .deb on the release
+        run: |
+          for _ in $(seq 1 80); do
+            if gh release view "$TAG" --json assets --jq '[.assets[].name] | any(test("_amd64\\.deb$"))' 2>/dev/null | grep -q true; then
+              echo ".deb is on the release"
+              break
+            fi
+            sleep 30
+          done
+          if ! gh release view "$TAG" --json assets --jq '[.assets[].name] | any(test("_amd64\\.deb$"))' | grep -q true; then
+            echo "::error::no md-app_*_amd64.deb on $TAG after 40m — did the Release workflow's linux job succeed?"
+            exit 1
+          fi
+
+      - name: Publish md-repo
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::missing secret CLOUDFLARE_API_TOKEN (Cloudflare API token, Pages: Edit on md-landing + md-repo) — see docs/RELEASING.md"
+            exit 1
+          fi
+          # On a detached tag checkout publish.sh can't push the PKGBUILD bump
+          # itself — it deploys md-repo and leaves the new PKGBUILD in the tree
+          # for the PR step below.
+          packaging/arch/publish.sh "$TAG"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          path: bump
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Open the PKGBUILD bump PR
+        working-directory: bump
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::missing secret RELEASE_PAT (fine-grained PAT, Contents + Pull requests: read/write) — see docs/RELEASING.md"
+            exit 1
+          fi
+          cp ../packaging/arch/PKGBUILD packaging/arch/PKGBUILD
+          git config user.name "md-release-bot"
+          git config user.email "md@localhost"
+          BR="release/pkg-${TAG}"
+          git switch -c "$BR"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "PKGBUILD already serves $TAG — no PR needed"
+            exit 0
+          fi
+          pkgrel=$(grep -oP '^pkgrel=\K.*' packaging/arch/PKGBUILD)
+          git commit -m "packaging: pacman repo serves 0.1.0-$pkgrel from $TAG"
+          git push origin "$BR"
+          gh api -X PATCH repos/clickCA/md -F allow_auto_merge=true >/dev/null
+          gh pr view "$BR" >/dev/null 2>&1 || gh pr create \
+            --base main --head "$BR" \
+            --title "packaging: pacman repo serves 0.1.0-$pkgrel from $TAG" \
+            --body "Automated PKGBUILD bump for \`$TAG\` (md-repo is already serving this build)."
+          gh pr merge --auto --merge "$BR" || true

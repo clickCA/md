@@ -51,13 +51,32 @@
    to the release as `md-app-android-arm64.apk`. Do **not** use
    `ANDROID_BUILD_FLAGS=--debug` for a shipped artifact — that produces a
    debuggable, cleartext-allowed APK signed with the local debug key.
-6. **Point the distribution surfaces at the new tag**:
-   - landing button: `landing/src/components/Footer.astro` → rebuild → deploy
-     (`pnpm build:landing` + `wrangler pages deploy landing/dist`)
-   - pacman repo: **`make pacman-publish`** — downloads the fresh `.deb` from
-     the release, rebuilds the package, `repo-add`, and deploys `md-repo`
-     (needs `gh`, `makepkg`, `repo-add`, and a `wrangler login`); it commits the
-     `packaging/arch/PKGBUILD` bump to `main` when run there
+6. **Distribution surfaces publish themselves** — `publish-distributions.yml`
+   runs on the same tag push and covers both, once enabled:
+   ```bash
+   gh variable set DISTRIBUTION_PUBLISH_ENABLED --body true   # after the secrets exist
+   ```
+   Secrets:
+
+   | Secret | Value |
+   | --- | --- |
+   | `CLOUDFLARE_API_TOKEN` | Cloudflare API token, **Pages: Edit** on `md-landing` + `md-repo` |
+   | `RELEASE_PAT` | fine-grained PAT on `clickCA/md` — **Contents** and **Pull requests: read & write** (PRs opened with `GITHUB_TOKEN` don't trigger CI, so their required checks would never start) |
+
+   - **Landing**: bumps `Footer.astro` to the tag, rebuilds `landing/dist`,
+     deploys `md-landing`, and opens an auto-merging bump PR (so the committed
+     `dist` matches what the Pages project serves).
+   - **Pacman**: waits for the `.deb`, then runs
+     `packaging/arch/publish.sh` (rebuild + `repo-add` + deploy `md-repo` in an
+     Arch container) and opens an auto-merging `PKGBUILD` bump PR.
+   - If `main` has moved past the tag before a bump PR runs, auto-merge
+     refuses and the PR waits for a human — nothing stale ships silently.
+
+   Manual fallback (also what to do for a one-off fix): `pnpm build:landing` +
+   `wrangler pages deploy landing/dist --project-name md-landing --branch main`
+   for the button, and **`make pacman-publish`** for the pacman repo (needs
+   `gh`, `makepkg`, `repo-add`, and a `wrangler login`); publish.sh commits the
+   `packaging/arch/PKGBUILD` bump to `main` when run there directly.
 
 ## Version convention
 
