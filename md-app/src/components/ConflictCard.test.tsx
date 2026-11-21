@@ -4,8 +4,6 @@ import { page, userEvent } from "vitest/browser";
 import { invoke } from "@tauri-apps/api/core";
 import ConflictCard from "./ConflictCard";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-
 const conflict = {
   path: "notes/clash.md",
   conflictCopy: "notes/clash.conflict-1730000000.md",

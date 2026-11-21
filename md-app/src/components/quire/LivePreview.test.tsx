@@ -1,26 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { render } from "vitest-browser-react";
 import { invoke } from "@tauri-apps/api/core";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import type { VaultFile } from "@/lib/vault";
+import { renderEditor } from "@/test/render";
+import { vaultFile } from "@/test/fixtures";
 import { mdLivePreview, type LivePreviewOptions } from "./livePreview";
-import { MarkdownEditor } from "./NoteEditor";
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-  Channel: class {
-    onmessage: ((event: unknown) => void) | null = null;
-  },
-}));
 
 /* Live-preview rendering contract, per construct: on inactive lines the
    page reads like rendered markdown (syntax collapsed away), the raw
    markdown stays untouched in the document, and only replaced widgets
    (the task checkbox) are atomic so clicks always map to real text. */
-
-const noop = () => {};
 
 /* 1×1 red PNG — a valid bitmap, so the widget keeps its <img> after load. */
 const PNG_B64 =
@@ -253,14 +243,12 @@ describe("mdLivePreview decorations", () => {
 
 describe("mdLivePreview in the editor", () => {
   it("hides syntax in the real editor stack, revealing it on the cursor's line", async () => {
-    const file: VaultFile = {
-      path: "notes/sample.md",
-      content: "# Title\n\n**bold** here\n\nplain line",
-      committed: null,
-    };
-    await render(
-      <MarkdownEditor file={file} dir="/vault" onChange={noop} onCursor={noop} dark={false} />,
-    );
+    await renderEditor({
+      file: vaultFile({
+        path: "notes/sample.md",
+        content: "# Title\n\n**bold** here\n\nplain line",
+      }),
+    });
     // Cursor is on line 1 (the heading): raw. Lines 3 and 5 are inactive.
     const text = (document.querySelector(".cm-content")?.textContent ?? "").replace(/\u200b/g, "");
     expect(text).toContain("# Title"); // active line shows raw markdown

@@ -2,18 +2,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import { invoke } from "@tauri-apps/api/core";
-import type { VaultFile } from "@/lib/vault";
+import { vaultFile } from "@/test/fixtures";
 import { MarkdownPreview } from "./NotePreview";
-
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const noop = () => {};
 
-const file: VaultFile = {
+const file = vaultFile({
   path: "Welcome.md",
   content: "# Hi\n\nSome **bold** and [[Other Note]].\n\n- [ ] task one\n- [x] task two\n",
-  committed: null,
-};
+});
 
 function renderPreview(overrides?: Partial<Parameters<typeof MarkdownPreview>[0]>) {
   return render(

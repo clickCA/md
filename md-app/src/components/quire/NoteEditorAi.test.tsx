@@ -1,19 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
-import type { VaultFile } from "@/lib/vault";
-import { MarkdownEditor } from "./NoteEditor";
+import { editorView, renderEditor } from "@/test/render";
+import { vaultFile } from "@/test/fixtures";
 import "../../index.css";
-
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-  Channel: class FakeChannel {
-    onmessage: ((event: unknown) => void) | null = null;
-  },
-}));
 
 const noop = () => {};
 
@@ -44,12 +35,8 @@ function mockCore(providers = PROVIDERS) {
 const DOC = "Alpha paragraph.\n\nBeta paragraph.\n";
 
 async function setup(content = DOC, onChange: (content: string) => void = noop) {
-  const file: VaultFile = { path: "notes/Note.md", content, committed: null };
-  await render(
-    <MarkdownEditor file={file} dir="/vault" onChange={onChange} onCursor={noop} dark={false} />,
-  );
-  const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
-  return view;
+  await renderEditor({ file: vaultFile({ content }), onChange });
+  return editorView();
 }
 
 /** Select the first paragraph ("Alpha paragraph.\n" = 17 chars) and start AI. */

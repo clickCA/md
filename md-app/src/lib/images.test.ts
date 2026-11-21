@@ -16,8 +16,6 @@ import {
   wikiImageParts,
 } from "./images";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-
 describe("mimeOf / isImageRef / isExternalImage", () => {
   it("maps extensions to mime types", () => {
     expect(mimeOf("a.png")).toBe("image/png");

@@ -1,31 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
-import { EditorView } from "@codemirror/view";
 import { invoke } from "@tauri-apps/api/core";
-import type { VaultFile } from "@/lib/vault";
-import { MarkdownEditor } from "./NoteEditor";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { editorView, renderEditor } from "@/test/render";
+import { settle } from "@/test/dom";
+import { vaultFile } from "@/test/fixtures";
 import "../../index.css";
-
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-  Channel: class {
-    onmessage: ((event: unknown) => void) | null = null;
-  },
-}));
 
 const noop = () => {};
 
-const file: VaultFile = {
+const file = vaultFile({
   path: "notes/Hello.md",
   content: "First line\nSecond line\n",
-  committed: null,
-};
-
-const raf = () =>
-  new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+});
 
 describe("MarkdownEditor click hitboxes", () => {
   const content = [
@@ -37,19 +24,11 @@ describe("MarkdownEditor click hitboxes", () => {
   ].join("\n");
 
   it("places the caret on the line that was clicked, at every boundary", async () => {
-    await render(
-      <MarkdownEditor
-        file={{ ...file, content }}
-        dir="/vault"
-        onChange={noop}
-        onCursor={noop}
-        dark={false}
-      />,
-    );
-    // CM6 measures line heights on animation frames — let it settle before
+    await renderEditor({ file: vaultFile({ ...file, content }) });
+    // CM6 measures line heights on animation frames — settle before
     // asserting anything about hitboxes.
-    await raf();
-    const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+    await settle();
+    const view = editorView();
     const click = (x: number, y: number) => {
       view.contentDOM.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -108,9 +87,7 @@ describe("MarkdownEditor click hitboxes", () => {
 
 describe("MarkdownEditor inline title", () => {
   it("focuses the editor and drops the caret at the top when the title is clicked", async () => {
-    await render(
-      <MarkdownEditor file={file} dir="/vault" onChange={noop} onCursor={noop} dark={false} />,
-    );
+    await renderEditor({ file });
     await page.getByRole("heading", { name: "Hello" }).click();
     // The editor surface took focus; the caret was dispatched to doc start.
     expect(document.activeElement?.classList.contains("cm-content")).toBe(true);
@@ -120,47 +97,29 @@ describe("MarkdownEditor inline title", () => {
 
   it("opens the note when a wikilink is Ctrl/Cmd-clicked", async () => {
     const onOpenLink = vi.fn();
-    await render(
-      <MarkdownEditor
-        file={{ ...file, content: "\nsee [[Other Note]] here" }}
-        dir="/vault"
-        onChange={noop}
-        onCursor={noop}
-        onOpenLink={onOpenLink}
-        dark={false}
-      />,
-    );
+    await renderEditor({
+      file: vaultFile({ ...file, content: "\nsee [[Other Note]] here" }),
+      onOpenLink,
+    });
     await page.getByText("Other Note").click({ modifiers: ["Control"] });
     expect(onOpenLink).toHaveBeenCalledWith("Other Note");
   });
 
   it("opens the note of a relative markdown link on Ctrl/Cmd-click", async () => {
     const onOpenLink = vi.fn();
-    await render(
-      <MarkdownEditor
-        file={{ ...file, content: "\nsee [docs page](notes/docs.md) here" }}
-        dir="/vault"
-        onChange={noop}
-        onCursor={noop}
-        onOpenLink={onOpenLink}
-        dark={false}
-      />,
-    );
+    await renderEditor({
+      file: vaultFile({ ...file, content: "\nsee [docs page](notes/docs.md) here" }),
+      onOpenLink,
+    });
     await page.getByText("docs page").click({ modifiers: ["Control"] });
     expect(onOpenLink).toHaveBeenCalledWith("notes/docs.md");
   });
 
   it("opens external links in the system browser on Ctrl/Cmd-click", async () => {
     vi.mocked(openUrl).mockClear();
-    await render(
-      <MarkdownEditor
-        file={{ ...file, content: "\nsee [the site](https://example.com) here" }}
-        dir="/vault"
-        onChange={noop}
-        onCursor={noop}
-        dark={false}
-      />,
-    );
+    await renderEditor({
+      file: vaultFile({ ...file, content: "\nsee [the site](https://example.com) here" }),
+    });
     await page.getByText("the site").click({ modifiers: ["Control"] });
     expect(openUrl).toHaveBeenCalledWith("https://example.com");
   });
@@ -169,17 +128,9 @@ describe("MarkdownEditor inline title", () => {
 describe("MarkdownEditor table editing", () => {
   it("moves cells with Tab instead of indenting the line", async () => {
     const content = ["| A | B |", "| --- | --- |", "| c | d |"].join("\n");
-    await render(
-      <MarkdownEditor
-        file={{ ...file, content }}
-        dir="/vault"
-        onChange={noop}
-        onCursor={noop}
-        dark={false}
-      />,
-    );
-    await raf();
-    const view = EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+    await renderEditor({ file: vaultFile({ ...file, content }) });
+    await settle();
+    const view = editorView();
     view.dispatch({ selection: { anchor: view.state.doc.line(3).from + 2 } });
     view.focus();
     const event = new KeyboardEvent("keydown", {
@@ -199,11 +150,9 @@ describe("MarkdownEditor table editing", () => {
 
 describe("MarkdownEditor image paste/drop", () => {
   const mount = async (onChange = noop) => {
-    await render(
-      <MarkdownEditor file={file} dir="/vault" onChange={onChange} onCursor={noop} dark={false} />,
-    );
-    await raf();
-    return EditorView.findFromDOM(document.querySelector(".cm-editor") as HTMLElement)!;
+    await renderEditor({ file, onChange });
+    await settle();
+    return editorView();
   };
 
   const pasteEventWith = (name: string, type: string): Event => {
