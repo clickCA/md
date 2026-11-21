@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
-import { MobileDrawer } from "./MobileDrawer";
+import { pointerEvent, sleep } from "@/test/dom";
+import { DrawerHarness, transformX } from "@/test/drawerHarness";
 
 /* The drawer's paint-behaviour (transform, scrim opacity, mount/unmount) is
    plain inline styles, so it works in the browser-test harness with no
@@ -16,19 +16,8 @@ import { MobileDrawer } from "./MobileDrawer";
    in a "hold" (same-x moves), just like a finger that stops before lifting —
    letting the release POSITION decide the settle. */
 
-const panelEl = (): HTMLElement | null => {
-  const el = page.getByTestId("content").query();
-  return el?.parentElement ?? null; // the translating (panel) wrapper
-};
-const transformX = (): number => {
-  const el = panelEl();
-  const m = el ? /translateX\(([-.\d]+)px\)/.exec(el.style.transform) : null;
-  return m ? Number(m[1]) : NaN;
-};
 const scrim = () => page.getByRole("button", { name: "Close sidebar" });
 const scrimOpacity = () => scrim().element().style.opacity;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Wait out the spring and assert the panel settled on `expected`. */
 const settledX = async (expected: number) => {
@@ -36,35 +25,22 @@ const settledX = async (expected: number) => {
   expect(transformX()).toBeCloseTo(expected, 1);
 };
 
-const pointer = (type: string, x: number, y = 50) =>
-  new PointerEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    pointerId: 1,
-    pointerType: "mouse",
-    isPrimary: true,
-    button: type === "pointerdown" ? 0 : -1,
-    buttons: type === "pointerup" ? 0 : 1,
-    clientX: x,
-    clientY: y,
-  });
-
 /** Drag on the mounted panel: pointerdown at `from`, paced moves through
    `path`, a held stop (kill release velocity), then pointerup. */
 async function panelDrag(body: Element, from: number, path: number[]) {
-  body.dispatchEvent(pointer("pointerdown", from));
+  body.dispatchEvent(pointerEvent("pointerdown", from));
   await sleep(8);
   for (const x of path) {
-    body.dispatchEvent(pointer("pointermove", x));
+    body.dispatchEvent(pointerEvent("pointermove", x));
     await sleep(16);
   }
   const end = path[path.length - 1];
   for (let i = 0; i < 6; i++) {
-    body.dispatchEvent(pointer("pointermove", end));
+    body.dispatchEvent(pointerEvent("pointermove", end));
     await sleep(5);
   }
   await sleep(8);
-  body.dispatchEvent(pointer("pointerup", end));
+  body.dispatchEvent(pointerEvent("pointerup", end));
 }
 
 const makeTouch = (x: number, y: number, target: Node) =>
@@ -100,27 +76,13 @@ async function edgeRelease(x: number) {
   document.body.dispatchEvent(touchEvent("touchend", makeTouch(x, 400, document.body)));
 }
 
-function Harness({ initialOpen = false }: { initialOpen?: boolean }) {
-  const [open, setOpen] = useState(initialOpen);
-  return (
-    <div>
-      <button type="button" onClick={() => setOpen((v) => !v)}>
-        toggle
-      </button>
-      <MobileDrawer open={open} onOpenChange={setOpen}>
-        <div data-testid="content">drawer body</div>
-      </MobileDrawer>
-    </div>
-  );
-}
-
 describe("MobileDrawer", () => {
   beforeEach(async () => {
     await page.viewport(390, 844); // phone-ish; drawer width = 320
   });
 
   it("starts hidden and animates open when the prop flips", async () => {
-    await render(<Harness />);
+    await render(<DrawerHarness />);
     expect(page.getByTestId("content").query()).toBeNull();
 
     await (page.getByRole("button", { name: "toggle" }).element() as HTMLElement).click();
@@ -133,7 +95,7 @@ describe("MobileDrawer", () => {
   });
 
   it("closes with animation and unmounts the content", async () => {
-    await render(<Harness initialOpen />);
+    await render(<DrawerHarness initialOpen />);
     await settledX(0);
 
     await (page.getByRole("button", { name: "toggle" }).element() as HTMLElement).click();
@@ -146,7 +108,7 @@ describe("MobileDrawer", () => {
   });
 
   it("tapping the backdrop closes the drawer", async () => {
-    await render(<Harness initialOpen />);
+    await render(<DrawerHarness initialOpen />);
     await settledX(0);
 
     (scrim().element() as HTMLElement).click();
@@ -155,7 +117,7 @@ describe("MobileDrawer", () => {
   });
 
   it("follows a drag-to-close 1:1 and snaps closed past the midpoint", async () => {
-    await render(<Harness initialOpen />);
+    await render(<DrawerHarness initialOpen />);
     await settledX(0);
 
     const body = page.getByTestId("content").element();
@@ -167,7 +129,7 @@ describe("MobileDrawer", () => {
   });
 
   it("snaps back to open after a short pull that never crosses the midpoint", async () => {
-    await render(<Harness initialOpen />);
+    await render(<DrawerHarness initialOpen />);
     await settledX(0);
 
     const body = page.getByTestId("content").element();
@@ -177,27 +139,27 @@ describe("MobileDrawer", () => {
   });
 
   it("ignores vertical drags inside the drawer", async () => {
-    await render(<Harness initialOpen />);
+    await render(<DrawerHarness initialOpen />);
     await settledX(0);
 
     const body = page.getByTestId("content").element();
-    body.dispatchEvent(pointer("pointerdown", 200, 50));
-    body.dispatchEvent(pointer("pointermove", 205, 120));
+    body.dispatchEvent(pointerEvent("pointerdown", 200, 50));
+    body.dispatchEvent(pointerEvent("pointermove", 205, 120));
     await sleep(16);
-    body.dispatchEvent(pointer("pointerup", 205, 120));
+    body.dispatchEvent(pointerEvent("pointerup", 205, 120));
 
     await settledX(0); // never moved — stayed open
   });
 
   it("rubber-bands when pulled past the open edge, then springs back", async () => {
-    await render(<Harness initialOpen />);
+    await render(<DrawerHarness initialOpen />);
     await settledX(0);
 
     const body = page.getByTestId("content").element();
-    body.dispatchEvent(pointer("pointerdown", 180));
-    body.dispatchEvent(pointer("pointermove", 360));
+    body.dispatchEvent(pointerEvent("pointerdown", 180));
+    body.dispatchEvent(pointerEvent("pointermove", 360));
     await sleep(16);
-    body.dispatchEvent(pointer("pointerup", 360));
+    body.dispatchEvent(pointerEvent("pointerup", 360));
 
     // Pulled +180px but the overscroll turns into only a stiff reveal.
     const resisted = transformX();
@@ -207,7 +169,7 @@ describe("MobileDrawer", () => {
   });
 
   it("opens from a left-edge pull, following the finger, snapping open", async () => {
-    await render(<Harness />);
+    await render(<DrawerHarness />);
     expect(page.getByTestId("content").query()).toBeNull();
 
     await edgeMoves([10, 120, 200, 240]);
@@ -221,7 +183,7 @@ describe("MobileDrawer", () => {
   });
 
   it("snaps closed when the edge pull stops short of the midpoint", async () => {
-    await render(<Harness />);
+    await render(<DrawerHarness />);
 
     await edgeMoves([8, 60, 110, 140]); // -320 + 132 = -188, past the midpoint
     await edgeRelease(140);
