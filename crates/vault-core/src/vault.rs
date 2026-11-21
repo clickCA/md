@@ -4,6 +4,63 @@ use crate::gix_backend::GixBackend;
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Monotonic suffix so concurrent writers never share a temp name.
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Replace `path` atomically: bytes go to a dot-prefixed temp sibling, are
+/// fsynced, then rename(2) swaps it into place — so an interrupted write
+/// leaves the previous complete content, never a partial file (REL-2 in
+/// docs/PRODUCT_REQUIREMENTS.md). A crash between the temp write and the
+/// rename can strand a `.name.*.tmp` stray; the next write of the same
+/// target sweeps it, and `.tmp` files are never `.md`, so listing, search
+/// and commits never see them. Durability stops at the platform's rename
+/// guarantee (the boundary docs/PRODUCT_REQUIREMENTS.md states); no
+/// directory fsync — Windows has no portable equivalent and the journal +
+/// Git history carry recovery.
+pub fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let invalid = |msg: &str| std::io::Error::new(std::io::ErrorKind::InvalidInput, msg);
+    let dir = path
+        .parent()
+        .ok_or_else(|| invalid("write target has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| invalid("write target has no file name"))?
+        .to_string_lossy()
+        .into_owned();
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = dir.join(format!(".{name}.{}-{seq}.tmp", std::process::id()));
+
+    let staged = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = staged {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    crate::abort_point("writing");
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    // Self-heal: drop strays from earlier interrupted writes of this target.
+    if let Ok(entries) = fs::read_dir(dir) {
+        let prefix = format!(".{name}.");
+        for entry in entries.flatten() {
+            let candidate = entry.file_name();
+            let candidate = candidate.to_string_lossy();
+            if candidate.starts_with(&prefix) && candidate.ends_with(".tmp") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
 
 pub struct Vault {
     pub root: PathBuf,
@@ -54,7 +111,7 @@ impl Vault {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(path, content)?;
+        atomic_write(&path, content.as_bytes())?;
         Ok(())
     }
 
@@ -517,7 +574,7 @@ impl Vault {
             }
             let existing = fs::read(&path).unwrap_or_default();
             if existing != data {
-                fs::write(&path, data)?;
+                atomic_write(&path, &data)?;
             }
         }
         Ok(())

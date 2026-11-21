@@ -1,3 +1,4 @@
+use crate::abort_point;
 use crate::git_backend::GitBackend;
 use crate::merge::{flatten_blobs, try_line_merge};
 use crate::vault::Vault;
@@ -17,15 +18,6 @@ pub struct SyncOutcome {
     pub head: Option<String>,
     pub remote: Option<String>,
     pub conflicts: Vec<ConflictRecord>,
-}
-
-fn abort_point(state: &str) {
-    if let Ok(s) = std::env::var("VAULT_SPIKE_ABORT_STATE") {
-        if s == state {
-            eprintln!("VAULT_SPIKE_ABORT_STATE={state}: aborting");
-            std::process::abort();
-        }
-    }
 }
 
 fn winner_key(time: i64, oid: &str) -> (i64, String) {

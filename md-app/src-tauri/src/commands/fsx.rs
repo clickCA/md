@@ -31,7 +31,7 @@ pub async fn save_image(dir: String, data: String, ext: String) -> Result<String
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .map_err(|e| AppError::InvalidInput(format!("base64 payload: {e}")))?;
-        std::fs::write(vault.root.join(&rel), bytes)?;
+        vault_core::vault::atomic_write(&vault.root.join(&rel), &bytes)?;
         Ok(rel)
     })
     .await
