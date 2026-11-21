@@ -3,7 +3,38 @@ use crate::git_backend::GitBackend;
 use crate::merge::{flatten_blobs, try_line_merge};
 use crate::vault::Vault;
 use anyhow::{anyhow, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex, MutexGuard};
+
+/// One mutating git operation per vault, process-wide (REL-9 in
+/// docs/PRODUCT_REQUIREMENTS.md). The UI guards auto-sync with a frontend
+/// flag, but a manual sync could still overlap an in-flight cycle — this is
+/// the engine-level serialization. Note read/write and search deliberately
+/// never take it: editing is never blocked by a running fetch.
+///
+/// One mutex is leaked per distinct vault root (bounded: ~dozens of bytes,
+/// once per vault per process) so the returned guard can claim the
+/// `'static` lifetime without `unsafe`.
+static VAULT_MUTATIONS: LazyLock<Mutex<HashMap<PathBuf, &'static Mutex<()>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Hold this to serialize vault-level mutations for `vault.root`. Keyed by
+/// canonical path, so two `Vault` handles to the same vault share one lock
+/// and different vaults never contend. Poisoned locks recover instead of
+/// cascading panics — a crashed sync must not wedge the next one.
+pub fn vault_mutation_guard(vault: &Vault) -> MutexGuard<'static, ()> {
+    let key = vault
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| vault.root.clone());
+    let lock = {
+        let mut map = VAULT_MUTATIONS.lock().unwrap_or_else(|p| p.into_inner());
+        *map.entry(key)
+            .or_insert_with(|| Box::leak(Box::new(Mutex::new(()))))
+    };
+    lock.lock().unwrap_or_else(|p| p.into_inner())
+}
 
 #[derive(Debug)]
 pub struct ConflictRecord {
@@ -79,6 +110,7 @@ pub fn sync_with_remote(
     remote: &str,
     creds: Option<&crate::git_backend::Credentials>,
 ) -> Result<SyncOutcome> {
+    let _mutation = vault_mutation_guard(vault);
     if vault.git.remote_url_of(remote)?.is_none() {
         return Err(anyhow!("no such remote: {remote}"));
     }
@@ -360,6 +392,7 @@ fn conflict_copy_name(path: &str) -> String {
 
 /// Commit pending changes and push (fails if the remote has moved).
 pub fn push_now(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+    let _mutation = vault_mutation_guard(vault);
     vault.commit_pending("auto: pending changes")?;
     let local = vault
         .git
@@ -371,6 +404,7 @@ pub fn push_now(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) 
 /// Take the remote state verbatim: fetch, materialize, move main.
 /// Local-only commits are abandoned (recoverable via reflog).
 pub fn take_remote(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+    let _mutation = vault_mutation_guard(vault);
     let remote = vault
         .git
         .fetch(creds)?
@@ -380,6 +414,7 @@ pub fn take_remote(vault: &Vault, creds: Option<&crate::git_backend::Credentials
 
 /// Commit pending changes and force-push local state to the remote.
 pub fn force_publish(vault: &Vault, creds: Option<&crate::git_backend::Credentials>) -> Result<()> {
+    let _mutation = vault_mutation_guard(vault);
     vault.commit_pending("auto: pending changes")?;
     let local = vault
         .git
